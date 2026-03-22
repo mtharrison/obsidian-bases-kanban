@@ -429,6 +429,16 @@ describe('Data Rendering - Card Rendering', () => {
 			'1 open · 1 done',
 			'Card should render task summary counts'
 		);
+		assert.strictEqual(
+			card?.querySelector('.obk-card-header .obk-card-task-progress-text')?.textContent,
+			'1/2',
+			'Card should render completed versus total tasks in the progress indicator'
+		);
+		assert.strictEqual(
+			(card?.querySelector('.obk-card-header .obk-card-task-progress') as HTMLElement | null)?.style.getPropertyValue('--obk-task-progress'),
+			'50%',
+			'Card should render the correct completion percentage for the progress indicator'
+		);
 		assert.ok(card?.querySelector('.obk-card-task-toggle'), 'Card should render toggle for completed tasks');
 
 		const checkboxes = card?.querySelectorAll('.obk-task-checkbox') ?? document.querySelectorAll('.obk-task-checkbox');
@@ -502,6 +512,7 @@ describe('Data Rendering - Card Rendering', () => {
 
 		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]');
 		assert.strictEqual(card?.querySelector('.obk-card-task-counts')?.textContent, '2 open · 0 done');
+		assert.strictEqual(card?.querySelector('.obk-card-header .obk-card-task-progress-text')?.textContent, '0/2');
 		assert.strictEqual(card?.querySelector('.obk-card-task-toggle'), null, 'Open-only cards should not show toggle noise');
 		assert.strictEqual(card?.querySelectorAll('.obk-task-item').length, 2, 'Open tasks should stay visible');
 	});
@@ -523,6 +534,7 @@ describe('Data Rendering - Card Rendering', () => {
 
 		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]') as HTMLElement;
 		assert.strictEqual(card.querySelectorAll('.obk-task-item').length, 0, 'Completed-only tasks should start collapsed');
+		assert.strictEqual(card.querySelector('.obk-card-header .obk-card-task-progress-text')?.textContent, '2/2');
 
 		const toggle = card.querySelector('.obk-card-task-toggle') as HTMLButtonElement;
 		toggle.click();
@@ -530,6 +542,33 @@ describe('Data Rendering - Card Rendering', () => {
 		const tasks = card.querySelectorAll('.obk-task-item');
 		assert.strictEqual(tasks.length, 2, 'Completed-only tasks should be revealable');
 		assert.strictEqual((tasks[1] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '1', 'Expanded nested completed tasks should keep indentation');
+	});
+
+	test('Card with no tasks shows a create-next-task link that opens the note', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', '# Task 1\n\nNo checklist yet.');
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]') as HTMLElement;
+		const emptyLink = card.querySelector('.obk-card-task-empty-link') as HTMLButtonElement | null;
+		assert.ok(emptyLink, 'Cards without tasks should show a create-next-task link');
+		assert.strictEqual(emptyLink?.textContent, '⚠️ Create next task');
+		assert.strictEqual(
+			card.querySelector('.obk-card-header .obk-card-task-progress'),
+			null,
+			'Cards without tasks should not show a task progress indicator in the header'
+		);
+
+		emptyLink?.click();
+		assert.strictEqual(app.workspace.openLinkText.calls.length, 1, 'Clicking the empty-task link should open the note');
+		assert.strictEqual(app.workspace.openLinkText.calls[0]?.[0], 'Task 1.md');
 	});
 
 	test('Card click handler opens file in workspace', () => {

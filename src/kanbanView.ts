@@ -19,6 +19,13 @@ function hasTaskVault(app: App | undefined): app is App {
 		&& typeof app.vault?.modify === 'function';
 }
 
+function hasLocalName(value: unknown, localName: string): value is { localName: string } {
+	return typeof value === 'object'
+		&& value !== null
+		&& 'localName' in value
+		&& (value as { localName?: string }).localName === localName;
+}
+
 export class KanbanView extends BasesView {
 	type = 'kanban-view';
 	
@@ -393,20 +400,40 @@ export class KanbanView extends BasesView {
 		try {
 			const content = await this.app.vault.cachedRead(entry.file);
 			const tasks = parseMarkdownTasks(content);
-
-			if (tasks.length === 0) {
-				tasksEl.remove();
-				return;
-			}
-
 			tasksEl.empty();
 			tasksEl.addEventListener('click', (event) => event.stopPropagation());
 			tasksEl.addEventListener('mousedown', (event) => event.stopPropagation());
+
+			if (tasks.length === 0) {
+				this.renderEmptyTaskState(entry, tasksEl);
+				return;
+			}
+
 			this.renderCardTasks(entry, tasks, tasksEl);
 		} catch (error) {
 			console.error('Error loading tasks for card:', entry.file.path, error);
 			tasksEl.remove();
 		}
+	}
+
+	private renderEmptyTaskState(entry: BasesEntry, tasksEl: HTMLElement): void {
+		tasksEl.empty();
+		const cardEl = tasksEl.closest(`.${CSS_CLASSES.CARD}`);
+		if (cardEl instanceof HTMLElement) {
+			this.clearCardTaskProgress(cardEl);
+		}
+
+		const linkEl = tasksEl.createEl('button', {
+			cls: CSS_CLASSES.CARD_TASK_EMPTY_LINK,
+			text: '⚠️ Create next task',
+		});
+		linkEl.type = 'button';
+		linkEl.addEventListener('click', (event) => {
+			event.stopPropagation();
+			if (this.app?.workspace) {
+				void this.app.workspace.openLinkText(entry.file.path, '', false);
+			}
+		});
 	}
 
 	private renderCardTasks(entry: BasesEntry, tasks: NoteTask[], tasksEl: HTMLElement): void {
@@ -415,6 +442,10 @@ export class KanbanView extends BasesView {
 		const openTasks = tasks.filter((task) => !task.completed);
 		const completedTasks = tasks.filter((task) => task.completed);
 		const isExpanded = this.expandedCompletedTaskCards.has(entry.file.path);
+		const cardEl = tasksEl.closest(`.${CSS_CLASSES.CARD}`);
+		if (cardEl instanceof HTMLElement) {
+			this.renderCardTaskProgress(cardEl, completedTasks.length, tasks.length);
+		}
 
 		const summaryEl = tasksEl.createDiv({ cls: CSS_CLASSES.CARD_TASK_SUMMARY });
 		summaryEl.createSpan({
@@ -447,6 +478,77 @@ export class KanbanView extends BasesView {
 				this.renderCardTasks(entry, tasks, tasksEl);
 			}));
 		});
+	}
+
+	private renderCardTaskProgress(cardEl: HTMLElement, completedTasks: number, totalTasks: number): void {
+		const svgNamespace = 'http://www.w3.org/2000/svg';
+		const ringRadius = 11.5;
+		const ringCircumference = 2 * Math.PI * ringRadius;
+		const headerEl = cardEl.querySelector(`.${CSS_CLASSES.CARD_HEADER}`);
+		if (!(headerEl instanceof HTMLElement)) {
+			return;
+		}
+
+		let badgesEl = headerEl.querySelector(`.${CSS_CLASSES.CARD_BADGES}`);
+		if (!(badgesEl instanceof HTMLElement)) {
+			badgesEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_BADGES });
+		}
+
+		let progressEl = badgesEl.querySelector(`.${CSS_CLASSES.CARD_TASK_PROGRESS}`);
+		if (!(progressEl instanceof HTMLElement)) {
+			progressEl = document.createElement('div');
+			progressEl.className = CSS_CLASSES.CARD_TASK_PROGRESS;
+			badgesEl.prepend(progressEl);
+		}
+		const progressElement = progressEl as HTMLElement;
+		let progressSvgEl = progressElement.querySelector('svg');
+		if (!hasLocalName(progressSvgEl, 'svg')) {
+			progressSvgEl = document.createElementNS(svgNamespace, 'svg');
+			progressSvgEl.setAttribute('viewBox', '0 0 28 28');
+			progressSvgEl.setAttribute('aria-hidden', 'true');
+			progressSvgEl.classList.add('obk-card-task-progress-svg');
+
+			const trackCircle = document.createElementNS(svgNamespace, 'circle');
+			trackCircle.setAttribute('cx', '14');
+			trackCircle.setAttribute('cy', '14');
+			trackCircle.setAttribute('r', String(ringRadius));
+			trackCircle.classList.add('obk-card-task-progress-track');
+
+			const meterCircle = document.createElementNS(svgNamespace, 'circle');
+			meterCircle.setAttribute('cx', '14');
+			meterCircle.setAttribute('cy', '14');
+			meterCircle.setAttribute('r', String(ringRadius));
+			meterCircle.classList.add('obk-card-task-progress-meter');
+
+			progressSvgEl.appendChild(trackCircle);
+			progressSvgEl.appendChild(meterCircle);
+			progressElement.prepend(progressSvgEl);
+		}
+
+		const meterCircle = progressSvgEl.querySelector('.obk-card-task-progress-meter');
+		if (hasLocalName(meterCircle, 'circle')) {
+			const meterCircleEl = meterCircle as unknown as HTMLElement;
+			const completionRatio = totalTasks === 0 ? 0 : completedTasks / totalTasks;
+			progressElement.style.setProperty('--obk-task-progress', `${completionRatio * 100}%`);
+			meterCircleEl.style.strokeDasharray = `${ringCircumference}`;
+			meterCircleEl.style.strokeDashoffset = `${ringCircumference * (1 - completionRatio)}`;
+		}
+
+		let progressTextEl = progressElement.querySelector(`.${CSS_CLASSES.CARD_TASK_PROGRESS_TEXT}`);
+		if (!(progressTextEl instanceof HTMLElement)) {
+			progressTextEl = document.createElement('span');
+			progressTextEl.className = CSS_CLASSES.CARD_TASK_PROGRESS_TEXT;
+			progressElement.appendChild(progressTextEl);
+		}
+
+		progressTextEl.textContent = `${completedTasks}/${totalTasks}`;
+	}
+
+	private clearCardTaskProgress(cardEl: HTMLElement): void {
+		const progressEl = cardEl.querySelector(`.${CSS_CLASSES.CARD_TASK_PROGRESS}`);
+		if (progressEl instanceof HTMLElement) {
+			progressEl.remove();
+		}
 	}
 
 	private createTaskItem(entry: BasesEntry, task: NoteTask, onToggle: () => void | Promise<void>): HTMLElement {
