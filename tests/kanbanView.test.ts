@@ -23,6 +23,11 @@ import {
 
 setupTestEnvironment();
 
+async function flushAsyncWork(): Promise<void> {
+	await Promise.resolve();
+	await Promise.resolve();
+}
+
 describe('KanbanView Initialization', () => {
 	let scrollEl: HTMLElement;
 	let controller: any;
@@ -295,6 +300,33 @@ describe('Data Rendering - Card Rendering', () => {
 		assert.ok(title?.textContent, 'Card title should have text content');
 	});
 
+	test('Card renders markdown tasks from the note', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', [
+			'# Task 1',
+			'- [ ] First subtask',
+			'- [x] Done subtask',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]');
+		assert.ok(card, 'Card should exist');
+
+		const tasks = card?.querySelectorAll('.obk-task-item');
+		assert.strictEqual(tasks?.length, 2, 'Card should render tasks from note content');
+
+		const checkboxes = card?.querySelectorAll('.obk-task-checkbox') || [];
+		assert.strictEqual((checkboxes[0] as HTMLInputElement).checked, false, 'First task should be unchecked');
+		assert.strictEqual((checkboxes[1] as HTMLInputElement).checked, true, 'Second task should be checked');
+	});
+
 	test('Card click handler opens file in workspace', () => {
 		const entries = createEntriesWithStatus();
 		controller = createMockQueryController(entries, TEST_PROPERTIES);
@@ -317,6 +349,48 @@ describe('Data Rendering - Card Rendering', () => {
 			app.workspace.openLinkText.calls[0][0],
 			entryPath,
 			'openLinkText should be called with entry path'
+		);
+	});
+
+	test('Task checkbox updates note content without opening the file', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', [
+			'# Task 1',
+			'- [ ] First subtask',
+			'Paragraph text',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const checkbox = view.containerEl.querySelector(
+			'[data-entry-path="Task 1.md"] .obk-task-checkbox'
+		) as HTMLInputElement;
+		assert.ok(checkbox, 'Task checkbox should exist');
+
+		checkbox.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+		assert.strictEqual(
+			app.workspace.openLinkText.calls.length,
+			0,
+			'Clicking a task checkbox should not open the note'
+		);
+
+		checkbox.checked = true;
+		checkbox.dispatchEvent(new window.Event('change', { bubbles: true }));
+		await flushAsyncWork();
+
+		assert.strictEqual(app.vault.modify.calls.length, 1, 'Task toggle should write note content');
+		assert.match(app.__getFileContent('Task 1.md'), /- \[x\] First subtask/, 'Updated note should contain checked task');
+
+		const taskItem = checkbox.closest('.obk-task-item');
+		assert.ok(
+			taskItem?.classList.contains('obk-task-item-completed'),
+			'Completed task should receive completed styling class'
 		);
 	});
 });
@@ -1443,4 +1517,3 @@ describe('Column Order Normalization', () => {
 		assert.ok(columns.length > 0, 'Columns should be rendered');
 	});
 });
-

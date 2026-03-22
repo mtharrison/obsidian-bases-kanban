@@ -42,6 +42,10 @@ export interface App {
 	fileManager: {
 		processFrontMatter(file: TFile, fn: (frontmatter: any) => void | Promise<void>): Promise<void>;
 	};
+	vault: {
+		cachedRead(file: TFile): Promise<string>;
+		modify(file: TFile, content: string): Promise<void>;
+	};
 }
 
 export abstract class BasesView {
@@ -94,4 +98,3 @@ export function parsePropertyId(propertyId: BasesPropertyId): { name: string; so
 		name: propertyId,
 	};
 }
-

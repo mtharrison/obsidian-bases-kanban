@@ -80,7 +80,8 @@
 
 /* Kanban Column */
 .obk-column {
-	flex: 0 0 280px;
+	flex: 1 1 280px;
+	min-width: 280px;
 	display: flex;
 	flex-direction: column;
 	background: var(--background-secondary);
@@ -191,6 +192,40 @@
 	word-wrap: break-word;
 }
 
+.obk-card-tasks {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.obk-task-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--text-normal);
+	cursor: pointer;
+}
+
+.obk-task-item-completed .obk-task-text {
+	color: var(--text-muted);
+	text-decoration: line-through;
+}
+
+.obk-task-checkbox {
+	margin: 1px 0 0;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.obk-task-text {
+	word-break: break-word;
+}
+
 .obk-card-preview {
 	font-size: 12px;
 	color: var(--text-muted);
@@ -242,7 +277,7 @@
 /* Responsive adjustments */
 @media (max-width: 768px) {
 	.obk-column {
-		flex: 0 0 240px;
+		flex-basis: 240px;
+		min-width: 240px;
 	}
 }
-

@@ -10,6 +10,7 @@ import {
 	EMPTY_STATE_MESSAGES,
 } from './constants.ts';
 import { ensureGroupExists, normalizePropertyValue } from './utils/grouping.ts';
+import { parseMarkdownTasks, updateTaskCompletion, type NoteTask } from './utils/tasks.ts';
 
 interface KanbanPlugin {
 	getColumnOrder(propertyId: BasesPropertyId): string[] | null;
@@ -29,9 +30,20 @@ interface AppWithPluginRegistry extends App {
 	};
 }
 
+interface AppWithTaskVault extends App {
+	vault?: {
+		cachedRead(file: BasesEntry['file']): Promise<string>;
+		modify(file: BasesEntry['file'], content: string): Promise<void>;
+	};
+}
+
 // Type guard to check if app has plugin registry
 function hasPluginRegistry(app: App | undefined): app is AppWithPluginRegistry {
 	return app !== undefined && 'plugins' in app;
+}
+
+function hasTaskVault(app: App | undefined): app is AppWithTaskVault {
+	return app !== undefined && 'vault' in app;
 }
 
 export class KanbanView extends BasesView {
@@ -175,6 +187,9 @@ export class KanbanView extends BasesView {
 		const titleEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE });
 		titleEl.textContent = entry.file.basename;
 
+		const tasksEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_TASKS });
+		void this.loadCardTasks(entry, tasksEl);
+
 		// Make card clickable to open the note
 		const clickHandler = () => {
 			if (this.app?.workspace) {
@@ -184,6 +199,98 @@ export class KanbanView extends BasesView {
 		cardEl.addEventListener('click', clickHandler);
 
 		return cardEl;
+	}
+
+	private async loadCardTasks(entry: BasesEntry, tasksEl: HTMLElement): Promise<void> {
+		if (!hasTaskVault(this.app)) {
+			tasksEl.remove();
+			return;
+		}
+
+		try {
+			const content = await this.app.vault.cachedRead(entry.file);
+			const tasks = parseMarkdownTasks(content);
+
+			if (tasks.length === 0) {
+				tasksEl.remove();
+				return;
+			}
+
+			tasksEl.empty();
+			tasksEl.addEventListener('click', (event) => event.stopPropagation());
+			tasksEl.addEventListener('mousedown', (event) => event.stopPropagation());
+
+			tasks.forEach((task) => {
+				tasksEl.appendChild(this.createTaskItem(entry, task));
+			});
+		} catch (error) {
+			console.error('Error loading tasks for card:', entry.file.path, error);
+			tasksEl.remove();
+		}
+	}
+
+	private createTaskItem(entry: BasesEntry, task: NoteTask): HTMLElement {
+		const taskEl = document.createElement('label');
+		taskEl.className = CSS_CLASSES.TASK_ITEM;
+		taskEl.setAttribute(DATA_ATTRIBUTES.TASK_LINE, String(task.line));
+		taskEl.addEventListener('click', (event) => event.stopPropagation());
+		taskEl.addEventListener('mousedown', (event) => event.stopPropagation());
+
+		const checkboxEl = document.createElement('input');
+		checkboxEl.type = 'checkbox';
+		checkboxEl.className = CSS_CLASSES.TASK_CHECKBOX;
+		checkboxEl.checked = task.completed;
+
+		const textEl = document.createElement('span');
+		textEl.className = CSS_CLASSES.TASK_TEXT;
+		textEl.textContent = task.text;
+
+		if (task.completed) {
+			taskEl.classList.add(CSS_CLASSES.TASK_ITEM_COMPLETED);
+		}
+
+		checkboxEl.addEventListener('click', (event) => event.stopPropagation());
+		checkboxEl.addEventListener('change', () => {
+			void this.handleTaskCheckboxChange(entry, task, checkboxEl, taskEl);
+		});
+
+		taskEl.appendChild(checkboxEl);
+		taskEl.appendChild(textEl);
+		return taskEl;
+	}
+
+	private async handleTaskCheckboxChange(
+		entry: BasesEntry,
+		task: NoteTask,
+		checkboxEl: HTMLInputElement,
+		taskEl: HTMLElement
+	): Promise<void> {
+		if (!hasTaskVault(this.app)) {
+			checkboxEl.checked = task.completed;
+			return;
+		}
+
+		const nextCompleted = checkboxEl.checked;
+		checkboxEl.disabled = true;
+
+		try {
+			const currentContent = await this.app.vault.cachedRead(entry.file);
+			const updatedContent = updateTaskCompletion(currentContent, task, nextCompleted);
+
+			if (updatedContent === null) {
+				throw new Error('Task line not found');
+			}
+
+			await this.app.vault.modify(entry.file, updatedContent);
+			task.completed = nextCompleted;
+			task.originalLine = `${task.indent}${task.bullet} [${nextCompleted ? 'x' : ' '}] ${task.text}`;
+			taskEl.classList.toggle(CSS_CLASSES.TASK_ITEM_COMPLETED, nextCompleted);
+		} catch (error) {
+			console.error('Error updating task checkbox:', entry.file.path, error);
+			checkboxEl.checked = task.completed;
+		} finally {
+			checkboxEl.disabled = false;
+		}
 	}
 
 	private initializeSortable(): void {

@@ -158,9 +158,30 @@ export function createMockFn(): MockFn {
 export function createMockApp(): App & { 
 	workspace: { openLinkText: MockFn };
 	fileManager: { processFrontMatter: MockFn };
+	vault: { cachedRead: MockFn; modify: MockFn };
+	__setFileContent(path: string, content: string): void;
+	__getFileContent(path: string): string;
 } {
 	const openLinkText = createMockFn();
 	const processFrontMatter = createMockFn();
+	const fileContents = new Map<string, string>();
+	const cachedRead = function(file: TFile) {
+		cachedRead.calls.push([file]);
+		return Promise.resolve(fileContents.get(file.path) ?? '');
+	} as MockFn;
+	cachedRead.calls = [];
+	cachedRead.reset = () => {
+		cachedRead.calls.length = 0;
+	};
+	const modify = function(file: TFile, content: string) {
+		modify.calls.push([file, content]);
+		fileContents.set(file.path, content);
+		return Promise.resolve();
+	} as MockFn;
+	modify.calls = [];
+	modify.reset = () => {
+		modify.calls.length = 0;
+	};
 
 	return {
 		workspace: {
@@ -169,6 +190,16 @@ export function createMockApp(): App & {
 		fileManager: {
 			processFrontMatter,
 		} as any,
+		vault: {
+			cachedRead,
+			modify,
+		} as any,
+		__setFileContent(path: string, content: string) {
+			fileContents.set(path, content);
+		},
+		__getFileContent(path: string) {
+			return fileContents.get(path) ?? '';
+		},
 	} as any;
 }
 
@@ -278,5 +309,4 @@ export function createKanbanViewWithApp(
 	setupKanbanViewWithApp(view, app);
 	return view;
 }
-
 

@@ -14,6 +14,7 @@ export const DATA_ATTRIBUTES = {
 	ENTRY_PATH: 'data-entry-path',
 	SORTABLE_CONTAINER: 'data-sortable-container',
 	COLUMN_POSITION: 'data-column-position',
+	TASK_LINE: 'data-task-line',
 } as const;
 
 /** CSS class names */
@@ -41,6 +42,11 @@ export const CSS_CLASSES = {
 	CARD: 'obk-card',
 	CARD_TITLE: 'obk-card-title',
 	CARD_PREVIEW: 'obk-card-preview',
+	CARD_TASKS: 'obk-card-tasks',
+	TASK_ITEM: 'obk-task-item',
+	TASK_ITEM_COMPLETED: 'obk-task-item-completed',
+	TASK_CHECKBOX: 'obk-task-checkbox',
+	TASK_TEXT: 'obk-task-text',
 	CARD_DRAGGING: 'obk-card-dragging',
 	CARD_GHOST: 'obk-card-ghost',
 	CARD_CHOSEN: 'obk-card-chosen',
@@ -62,4 +68,3 @@ export const EMPTY_STATE_MESSAGES = {
 	NO_ENTRIES: 'No entries found. Add some notes to your base.',
 	NO_PROPERTIES: 'No properties found in entries.',
 } as const;
-
