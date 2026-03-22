@@ -84,7 +84,7 @@
 	display: flex;
 	gap: 15px;
 	min-width: 100%;
-	align-items: flex-start;
+	align-items: stretch;
 }
 
 .obk-swimlanes {
@@ -265,6 +265,7 @@
 }
 
 .obk-column-body {
+	flex: 1 1 auto;
 	padding: 10px;
 	display: flex;
 	flex-direction: column;
