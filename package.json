@@ -1,7 +1,7 @@
 {
-  "name": "kanban-bases-view",
+  "name": "@mtharrison/kanban-base-advanced",
   "version": "0.1.6",
-  "description": "A kanban-style drag-and-drop custom view for Obsidian Bases",
+  "description": "A kanban view for Obsidian Bases with swimlanes, milestone cards, task rollups, and custom column colors",
   "main": "main.js",
   "imports": {
     "obsidian": "./tests/mocks/obsidian.ts",
@@ -22,8 +22,16 @@
     "bases",
     "task-management"
   ],
-  "author": "I. Welch Canavan",
+  "author": "Matt Harrison <hi@matt-harrison.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:mtharrison/obsidian-bases-kanban.git"
+  },
+  "homepage": "https://github.com/mtharrison/obsidian-bases-kanban#readme",
+  "bugs": {
+    "url": "https://github.com/mtharrison/obsidian-bases-kanban/issues"
+  },
   "devDependencies": {
     "@types/jsdom": "^21.1.6",
     "@types/node": "^24.0.0",

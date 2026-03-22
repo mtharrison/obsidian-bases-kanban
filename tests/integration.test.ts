@@ -127,6 +127,12 @@ describe('Integration Tests - Full Workflow', () => {
 			}
 			return null;
 		};
+		(entry as any).getProperty = (propId: string) => {
+			if (propId === PROPERTY_STATUS) {
+				return 'Doing';
+			}
+			return null;
+		};
 
 		// Trigger data update
 		view.onDataUpdated();
@@ -415,4 +421,3 @@ describe('Integration Tests - Edge Cases', () => {
 		assert.ok(uncategorizedCards && uncategorizedCards.length >= 1, 'Should have at least one uncategorized card');
 	});
 });
-

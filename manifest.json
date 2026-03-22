@@ -3,8 +3,8 @@
 	"name": "Kanban Bases View",
 	"version": "0.1.6",
 	"minAppVersion": "1.0.0",
-	"description": "A kanban-style drag-and-drop custom view for Bases.",
-	"author": "I. Welch Canavan",
-	"authorUrl": "https://welchcanavan.com",
+	"description": "A kanban view for Bases with swimlanes, milestone cards, task rollups, and custom column colors.",
+	"author": "Matt Harrison",
+	"authorUrl": "https://github.com/mtharrison",
 	"isDesktopOnly": false
 }

@@ -10,13 +10,33 @@ import {
 	EMPTY_STATE_MESSAGES,
 } from './constants.ts';
 import { ensureGroupExists, normalizePropertyValue } from './utils/grouping.ts';
-import { parseMarkdownTasks, updateTaskCompletion, type NoteTask } from './utils/tasks.ts';
+import {
+	parseMilestones,
+	getMilestoneValue,
+	setMilestoneValue,
+	normalizeMilestoneFrontmatter,
+	type MilestoneDefinition,
+} from './utils/milestones.ts';
+import {
+	findHeadingSection,
+	parseMarkdownTasks,
+	updateTaskCompletion,
+	type NoteTask,
+} from './utils/tasks.ts';
 
 function hasTaskVault(app: App | undefined): app is App {
 	return app !== undefined
 		&& 'vault' in app
 		&& typeof app.vault?.cachedRead === 'function'
 		&& typeof app.vault?.modify === 'function';
+}
+
+function hasMetadataCache(app: App | undefined): app is App & {
+	metadataCache: { getFileCache(file: BasesEntry['file']): { frontmatter?: Record<string, unknown> } | null };
+} {
+	return app !== undefined
+		&& 'metadataCache' in app
+		&& typeof (app as App & { metadataCache?: { getFileCache?: unknown } }).metadataCache?.getFileCache === 'function';
 }
 
 function hasLocalName(value: unknown, localName: string): value is { localName: string } {
@@ -26,6 +46,20 @@ function hasLocalName(value: unknown, localName: string): value is { localName: 
 		&& (value as { localName?: string }).localName === localName;
 }
 
+interface CardInstance {
+	entry: BasesEntry;
+	title: string;
+	milestoneIndex: number | null;
+	milestoneData: Record<string, unknown> | null;
+}
+
+interface ScrollSnapshot {
+	mainScrollTop: number;
+	swimlanesScrollTop: number | null;
+	boardScrollLefts: Record<string, number>;
+	ancestorScrolls: Array<{ element: HTMLElement; top: number; left: number }>;
+}
+
 export class KanbanView extends BasesView {
 	type = 'kanban-view';
 	
@@ -33,6 +67,7 @@ export class KanbanView extends BasesView {
 	containerEl: HTMLElement;
 	private groupByPropertyId: BasesPropertyId | null = null;
 	private swimlanePropertyId: BasesPropertyId | null = null;
+	private milestonePropertyId: BasesPropertyId | null = null;
 	private expandedCompletedTaskCards = new Set<string>();
 	private sortableInstances: Sortable[] = [];
 	private columnSortable: Sortable | null = null;
@@ -48,7 +83,9 @@ export class KanbanView extends BasesView {
 	onDataUpdated(): void {
 		try {
 			this.loadConfig();
+			const scrollSnapshot = this.captureScrollSnapshot();
 			this.render();
+			this.restoreScrollSnapshot(scrollSnapshot);
 		} catch (error) {
 			console.error('KanbanView error:', error);
 		}
@@ -58,10 +95,103 @@ export class KanbanView extends BasesView {
 		// Load group by property from config
 		this.groupByPropertyId = this.config.getAsPropertyId('groupByProperty');
 		this.swimlanePropertyId = this.config.getAsPropertyId('swimlaneProperty');
+		this.milestonePropertyId = this.config.getAsPropertyId('milestoneProperty');
 	}
 
 	private shouldShowSwimlanes(): boolean {
 		return this.config?.get?.('showSwimlanes') !== false;
+	}
+
+	private captureScrollSnapshot(): ScrollSnapshot {
+		const snapshot: ScrollSnapshot = {
+			mainScrollTop: this.scrollEl.scrollTop,
+			swimlanesScrollTop: null,
+			boardScrollLefts: {},
+			ancestorScrolls: this.getScrollableAncestors(this.scrollEl).map((element) => ({
+				element,
+				top: element.scrollTop,
+				left: element.scrollLeft,
+			})),
+		};
+
+		const swimlanesEl = this.containerEl.querySelector(`.${CSS_CLASSES.SWIMLANES}`);
+		if (swimlanesEl instanceof HTMLElement) {
+			snapshot.swimlanesScrollTop = swimlanesEl.scrollTop;
+		}
+
+		const boardScrollers = this.containerEl.querySelectorAll(`.${CSS_CLASSES.BOARD_SCROLLER}`);
+		boardScrollers.forEach((scroller, index) => {
+			if (!(scroller instanceof HTMLElement)) {
+				return;
+			}
+
+			snapshot.boardScrollLefts[this.getBoardScrollerKey(scroller, index)] = scroller.scrollLeft;
+		});
+
+		return snapshot;
+	}
+
+	private restoreScrollSnapshot(snapshot: ScrollSnapshot): void {
+		this.scrollEl.scrollTop = snapshot.mainScrollTop;
+
+		const applyScrollState = () => {
+			this.scrollEl.scrollTop = snapshot.mainScrollTop;
+			const swimlanesEl = this.containerEl.querySelector(`.${CSS_CLASSES.SWIMLANES}`);
+			if (swimlanesEl instanceof HTMLElement && snapshot.swimlanesScrollTop !== null) {
+				swimlanesEl.scrollTop = snapshot.swimlanesScrollTop;
+			}
+			const boardScrollers = this.containerEl.querySelectorAll(`.${CSS_CLASSES.BOARD_SCROLLER}`);
+			boardScrollers.forEach((scroller, index) => {
+				if (!(scroller instanceof HTMLElement)) {
+					return;
+				}
+
+				const savedLeft = snapshot.boardScrollLefts[this.getBoardScrollerKey(scroller, index)];
+				if (savedLeft !== undefined) {
+					scroller.scrollLeft = savedLeft;
+				}
+			});
+
+			snapshot.ancestorScrolls.forEach(({ element, top, left }) => {
+				element.scrollTop = top;
+				element.scrollLeft = left;
+			});
+		};
+
+		applyScrollState();
+		window.requestAnimationFrame(() => applyScrollState());
+	}
+
+	private getBoardScrollerKey(scroller: HTMLElement, index: number): string {
+		const laneEl = scroller.closest(`.${CSS_CLASSES.LANE}`);
+		if (laneEl instanceof HTMLElement) {
+			return `lane:${laneEl.getAttribute(DATA_ATTRIBUTES.LANE_VALUE) ?? index}`;
+		}
+
+		return `board:${index}`;
+	}
+
+	private getScrollableAncestors(startEl: HTMLElement): HTMLElement[] {
+		const ancestors: HTMLElement[] = [];
+		let current: HTMLElement | null = startEl.parentElement;
+
+		while (current) {
+			if (this.isScrollable(current)) {
+				ancestors.push(current);
+			}
+			current = current.parentElement;
+		}
+
+		return ancestors;
+	}
+
+	private isScrollable(element: HTMLElement): boolean {
+		const style = window.getComputedStyle(element);
+		const overflowY = style.overflowY;
+		const overflowX = style.overflowX;
+		const canScrollY = (overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight;
+		const canScrollX = (overflowX === 'auto' || overflowX === 'scroll') && element.scrollWidth > element.clientWidth;
+		return canScrollY || canScrollX;
 	}
 
 	private render(): void {
@@ -84,9 +214,11 @@ export class KanbanView extends BasesView {
 			}
 
 			this.swimlanePropertyId = this.resolveSwimlaneProperty(availablePropertyIds);
+			this.milestonePropertyId = this.resolveMilestoneProperty(availablePropertyIds);
 
-			const columnValues = this.getOrderedColumnValues(this.getPropertyValues(entries, this.groupByPropertyId));
-			if (entries.length === 0 && columnValues.length === 0) {
+			const cards = this.buildCardInstances(entries);
+			const columnValues = this.getOrderedColumnValues(this.getCardPropertyValues(cards, this.groupByPropertyId));
+			if (cards.length === 0 && columnValues.length === 0) {
 				this.containerEl.createDiv({
 					text: EMPTY_STATE_MESSAGES.NO_ENTRIES,
 					cls: CSS_CLASSES.EMPTY_STATE
@@ -95,9 +227,9 @@ export class KanbanView extends BasesView {
 			}
 
 			if (this.swimlanePropertyId && this.shouldShowSwimlanes()) {
-				this.renderSwimlanes(entries, columnValues, this.swimlanePropertyId);
+				this.renderSwimlanes(cards, columnValues, this.swimlanePropertyId);
 			} else {
-				const groupedEntries = this.groupEntriesByProperty(entries, this.groupByPropertyId);
+				const groupedEntries = this.groupCardsByProperty(cards, this.groupByPropertyId);
 				const boardScrollerEl = this.containerEl.createDiv({ cls: CSS_CLASSES.BOARD_SCROLLER });
 				const boardEl = boardScrollerEl.createDiv({ cls: CSS_CLASSES.BOARD });
 
@@ -164,13 +296,101 @@ export class KanbanView extends BasesView {
 		return this.swimlanePropertyId;
 	}
 
+	private resolveMilestoneProperty(availablePropertyIds: BasesPropertyId[]): BasesPropertyId | null {
+		if (!this.milestonePropertyId || !availablePropertyIds.includes(this.milestonePropertyId)) {
+			return null;
+		}
+
+		if (this.milestonePropertyId === this.groupByPropertyId || this.milestonePropertyId === this.swimlanePropertyId) {
+			return null;
+		}
+
+		return this.milestonePropertyId;
+	}
+
+	private buildCardInstances(entries: BasesEntry[]): CardInstance[] {
+		return entries.flatMap((entry) => {
+			const milestones = this.getEntryMilestones(entry);
+			if (milestones.length === 0) {
+				return [{
+					entry,
+					title: entry.file.basename,
+					milestoneIndex: null,
+					milestoneData: null,
+				} satisfies CardInstance];
+			}
+
+			return milestones.map((milestone) => ({
+				entry,
+				title: milestone.title,
+				milestoneIndex: milestone.index,
+				milestoneData: milestone.data,
+			} satisfies CardInstance));
+		});
+	}
+
+	private getEntryMilestones(entry: BasesEntry): MilestoneDefinition[] {
+		if (!this.milestonePropertyId) {
+			return [];
+		}
+
+		const rawMilestones = this.getEntryPropertyValue(entry, this.milestonePropertyId);
+		const frontmatterMilestones = this.getMilestonesFromMetadataCache(entry);
+		if (frontmatterMilestones.length > 0 && !this.isStructuredMilestoneValue(rawMilestones)) {
+			return frontmatterMilestones;
+		}
+
+		const directMilestones = parseMilestones(rawMilestones);
+		if (directMilestones.length > 0) {
+			return directMilestones;
+		}
+
+		return frontmatterMilestones;
+	}
+
+	private getMilestonesFromMetadataCache(entry: BasesEntry): MilestoneDefinition[] {
+		if (!this.milestonePropertyId || !hasMetadataCache(this.app)) {
+			return [];
+		}
+
+		const propertyName = parsePropertyId(this.milestonePropertyId).name;
+		const frontmatter = this.app.metadataCache.getFileCache(entry.file)?.frontmatter;
+		if (!frontmatter || typeof frontmatter !== 'object') {
+			return [];
+		}
+
+		return parseMilestones(frontmatter[propertyName]);
+	}
+
+	private isStructuredMilestoneValue(value: unknown): boolean {
+		if (Array.isArray(value)) {
+			return true;
+		}
+
+		return typeof value === 'object' && value !== null;
+	}
+
+	private groupCardsByProperty(cards: CardInstance[], propertyId: BasesPropertyId): Map<string, CardInstance[]> {
+		const grouped = new Map<string, CardInstance[]>();
+		cards.forEach((card) => {
+			const value = normalizePropertyValue(this.getCardPropertyValue(card, propertyId));
+			const group = ensureGroupExists(grouped, value);
+			group.push(card);
+		});
+		return grouped;
+	}
+
+	private getCardPropertyValues(cards: CardInstance[], propertyId: BasesPropertyId): string[] {
+		return Array.from(this.groupCardsByProperty(cards, propertyId).keys());
+	}
+
 	private renderSwimlanes(
-		entries: BasesEntry[],
+		cards: CardInstance[],
 		columnValues: string[],
 		swimlanePropertyId: BasesPropertyId
 	): void {
 		const swimlanesEl = this.containerEl.createDiv({ cls: CSS_CLASSES.SWIMLANES });
-		const groupedByLane = this.groupEntriesByProperty(entries, swimlanePropertyId);
+		const groupedByLane = this.groupCardsByProperty(cards, swimlanePropertyId);
 		const laneValues = this.getOrderedLaneValues(Array.from(groupedByLane.keys()), swimlanePropertyId);
 
 		laneValues.forEach((laneValue) => {
@@ -186,7 +406,7 @@ export class KanbanView extends BasesView {
 
 			const boardScrollerEl = laneEl.createDiv({ cls: CSS_CLASSES.BOARD_SCROLLER });
 			const boardEl = boardScrollerEl.createDiv({ cls: CSS_CLASSES.BOARD });
-			const groupedByColumn = this.groupEntriesByProperty(laneEntries, this.groupByPropertyId as BasesPropertyId);
+			const groupedByColumn = this.groupCardsByProperty(laneEntries, this.groupByPropertyId as BasesPropertyId);
 
 			columnValues.forEach((columnValue) => {
 				const columnEl = this.createColumn(columnValue, groupedByColumn.get(columnValue) || []);
@@ -195,13 +415,13 @@ export class KanbanView extends BasesView {
 		});
 	}
 
-	private createColumn(value: string, entries: BasesEntry[]): HTMLElement {
+	private createColumn(value: string, cards: CardInstance[]): HTMLElement {
 		const columnEl = document.createElement('div');
 		columnEl.className = CSS_CLASSES.COLUMN;
 		columnEl.setAttribute(DATA_ATTRIBUTES.COLUMN_VALUE, value);
 		columnEl.setAttribute(DATA_ATTRIBUTES.COLUMN_TONE, this.getColumnTone(value));
 		this.applyCustomColumnColor(columnEl, value);
-		if (entries.length === 0) {
+		if (cards.length === 0) {
 			columnEl.classList.add(`${CSS_CLASSES.COLUMN}-empty`);
 		}
 
@@ -213,35 +433,49 @@ export class KanbanView extends BasesView {
 		dragHandle.textContent = '⋮⋮';
 		
 		headerEl.createSpan({ text: value, cls: CSS_CLASSES.COLUMN_TITLE });
-		headerEl.createSpan({ text: `(${entries.length})`, cls: CSS_CLASSES.COLUMN_COUNT });
+		headerEl.createSpan({ text: `(${cards.length})`, cls: CSS_CLASSES.COLUMN_COUNT });
 
 		// Column body (cards container)
 		const bodyEl = columnEl.createDiv({ cls: CSS_CLASSES.COLUMN_BODY });
 		bodyEl.setAttribute(DATA_ATTRIBUTES.SORTABLE_CONTAINER, 'true');
 
 		// Create cards for each entry
-		entries.forEach((entry) => {
-			const cardEl = this.createCard(entry);
+		cards.forEach((card) => {
+			const cardEl = this.createCard(card);
 			bodyEl.appendChild(cardEl);
 		});
 
 		return columnEl;
 	}
 
-	private createCard(entry: BasesEntry): HTMLElement {
+	private createCard(card: CardInstance): HTMLElement {
 		const cardEl = document.createElement('div');
 		cardEl.className = CSS_CLASSES.CARD;
-		const filePath = entry.file.path;
+		const filePath = card.entry.file.path;
 		cardEl.setAttribute(DATA_ATTRIBUTES.ENTRY_PATH, filePath);
+		if (card.milestoneIndex !== null) {
+			cardEl.setAttribute(DATA_ATTRIBUTES.MILESTONE_INDEX, String(card.milestoneIndex));
+		}
 
 		const headerEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_HEADER });
 
-		// Card title - use file basename
-		const titleEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE });
-		titleEl.textContent = entry.file.basename;
+		const titleGroupEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE_GROUP });
+		const titleEl = titleGroupEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE });
+		titleEl.textContent = card.title;
+		if (card.milestoneIndex !== null) {
+			const sourceEl = titleGroupEl.createDiv({ cls: CSS_CLASSES.CARD_SOURCE });
+			sourceEl.createSpan({
+				cls: CSS_CLASSES.CARD_SOURCE_LABEL,
+				text: '◈ Milestone',
+			});
+			sourceEl.createSpan({
+				cls: CSS_CLASSES.CARD_SOURCE_NAME,
+				text: card.entry.file.basename,
+			});
+		}
 
-		const swimlaneHeaderValue = this.getCardSwimlaneHeaderValue(entry);
-		const tagValues = this.getCardTagValues(entry);
+		const swimlaneHeaderValue = this.getCardSwimlaneHeaderValue(card);
+		const tagValues = this.getCardTagValues(card);
 		if (swimlaneHeaderValue || tagValues.length > 0) {
 			const badgesEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_BADGES });
 			if (swimlaneHeaderValue) {
@@ -261,7 +495,7 @@ export class KanbanView extends BasesView {
 		if (metaProperties.length > 0) {
 			const metaEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_META });
 			metaProperties.forEach((propertyId) => {
-				const value = this.formatCardPropertyValue(this.getEntryPropertyValue(entry, propertyId));
+				const value = this.formatCardPropertyValue(this.getCardPropertyValue(card, propertyId));
 				if (!value) {
 					return;
 				}
@@ -278,7 +512,7 @@ export class KanbanView extends BasesView {
 		}
 
 		const tasksEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_TASKS });
-		void this.loadCardTasks(entry, tasksEl);
+		void this.loadCardTasks(card, tasksEl);
 
 		// Make card clickable to open the note
 		const clickHandler = () => {
@@ -291,27 +525,39 @@ export class KanbanView extends BasesView {
 		return cardEl;
 	}
 
-	private getCardTagValues(entry: BasesEntry): string[] {
+	private getCardTagValues(card: CardInstance): string[] {
 		const tagPropertyId = this.findTagPropertyId();
 		if (!tagPropertyId) {
 			return [];
 		}
 
 		try {
-			const rawValue = this.getEntryPropertyValue(entry, tagPropertyId);
+			const rawValue = this.getCardPropertyValue(card, tagPropertyId);
 			return this.normalizeTagValues(rawValue);
 		} catch (error) {
-			console.warn('Error reading tag property for entry:', entry.file.path, error);
+			console.warn('Error reading tag property for entry:', card.entry.file.path, error);
 			return [];
 		}
 	}
 
-	private getCardSwimlaneHeaderValue(entry: BasesEntry): string | null {
+	private getCardSwimlaneHeaderValue(card: CardInstance): string | null {
 		if (!this.swimlanePropertyId || this.shouldShowSwimlanes()) {
 			return null;
 		}
 
-		return this.formatCardPropertyValue(this.getEntryPropertyValue(entry, this.swimlanePropertyId));
+		return this.formatCardPropertyValue(this.getCardPropertyValue(card, this.swimlanePropertyId));
+	}
+
+	private getCardPropertyValue(card: CardInstance, propertyId: BasesPropertyId): unknown {
+		if (card.milestoneData) {
+			const propertyName = parsePropertyId(propertyId).name;
+			const milestoneValue = getMilestoneValue(card.milestoneData, propertyName);
+			if (milestoneValue !== null && milestoneValue !== undefined && milestoneValue !== '') {
+				return milestoneValue;
+			}
+		}
+
+		return this.getEntryPropertyValue(card.entry, propertyId);
 	}
 
 	private getEntryPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
@@ -372,6 +618,7 @@ export class KanbanView extends BasesView {
 		return orderedProperties.filter((propertyId) => {
 			return propertyId !== this.groupByPropertyId
 				&& propertyId !== this.swimlanePropertyId
+				&& propertyId !== this.milestonePropertyId
 				&& propertyId !== this.findTagPropertyId();
 		});
 	}
@@ -396,29 +643,42 @@ export class KanbanView extends BasesView {
 		return normalized;
 	}
 
-	private async loadCardTasks(entry: BasesEntry, tasksEl: HTMLElement): Promise<void> {
+	private async loadCardTasks(card: CardInstance, tasksEl: HTMLElement): Promise<void> {
 		if (!hasTaskVault(this.app)) {
 			tasksEl.remove();
 			return;
 		}
 
 		try {
-			const content = await this.app.vault.cachedRead(entry.file);
-			const tasks = parseMarkdownTasks(content);
+			const content = await this.app.vault.cachedRead(card.entry.file);
+			const tasks = this.getCardTasksFromContent(card, content);
 			tasksEl.empty();
 			tasksEl.addEventListener('click', (event) => event.stopPropagation());
 			tasksEl.addEventListener('mousedown', (event) => event.stopPropagation());
 
 			if (tasks.length === 0) {
-				this.renderEmptyTaskState(entry, tasksEl);
+				this.renderEmptyTaskState(card.entry, tasksEl);
 				return;
 			}
 
-			this.renderCardTasks(entry, tasks, tasksEl);
+			this.renderCardTasks(card, tasks, tasksEl);
 		} catch (error) {
-			console.error('Error loading tasks for card:', entry.file.path, error);
+			console.error('Error loading tasks for card:', card.entry.file.path, error);
 			tasksEl.remove();
 		}
+	}
+
+	private getCardTasksFromContent(card: CardInstance, content: string): NoteTask[] {
+		if (card.milestoneIndex === null) {
+			return parseMarkdownTasks(content);
+		}
+
+		const section = findHeadingSection(content, card.title);
+		if (!section) {
+			return [];
+		}
+
+		return parseMarkdownTasks(content, section);
 	}
 
 	private renderEmptyTaskState(entry: BasesEntry, tasksEl: HTMLElement): void {
@@ -441,12 +701,13 @@ export class KanbanView extends BasesView {
 		});
 	}
 
-	private renderCardTasks(entry: BasesEntry, tasks: NoteTask[], tasksEl: HTMLElement): void {
+	private renderCardTasks(card: CardInstance, tasks: NoteTask[], tasksEl: HTMLElement): void {
 		tasksEl.empty();
 
 		const openTasks = tasks.filter((task) => !task.completed);
 		const completedTasks = tasks.filter((task) => task.completed);
-		const isExpanded = this.expandedCompletedTaskCards.has(entry.file.path);
+		const cardId = this.getCardInstanceId(card);
+		const isExpanded = this.expandedCompletedTaskCards.has(cardId);
 		const cardEl = tasksEl.closest(`.${CSS_CLASSES.CARD}`);
 		if (cardEl instanceof HTMLElement) {
 			this.renderCardTaskProgress(cardEl, completedTasks.length, tasks.length);
@@ -465,11 +726,11 @@ export class KanbanView extends BasesView {
 			toggleEl.addEventListener('click', (event) => {
 				event.stopPropagation();
 				if (isExpanded) {
-					this.expandedCompletedTaskCards.delete(entry.file.path);
+					this.expandedCompletedTaskCards.delete(cardId);
 				} else {
-					this.expandedCompletedTaskCards.add(entry.file.path);
+					this.expandedCompletedTaskCards.add(cardId);
 				}
-				this.renderCardTasks(entry, tasks, tasksEl);
+				this.renderCardTasks(card, tasks, tasksEl);
 			});
 		}
 
@@ -479,8 +740,8 @@ export class KanbanView extends BasesView {
 			: tasks.filter((task) => !task.completed);
 
 		visibleTasks.forEach((task) => {
-			listEl.appendChild(this.createTaskItem(entry, task, async () => {
-				this.renderCardTasks(entry, tasks, tasksEl);
+			listEl.appendChild(this.createTaskItem(card.entry, task, async () => {
+				this.renderCardTasks(card, tasks, tasksEl);
 			}));
 		});
 	}
@@ -554,6 +815,12 @@ export class KanbanView extends BasesView {
 		if (progressEl instanceof HTMLElement) {
 			progressEl.remove();
 		}
+	}
+
+	private getCardInstanceId(card: CardInstance): string {
+		return card.milestoneIndex === null
+			? card.entry.file.path
+			: `${card.entry.file.path}::milestone:${card.milestoneIndex}`;
 	}
 
 	private createTaskItem(entry: BasesEntry, task: NoteTask, onToggle: () => void | Promise<void>): HTMLElement {
@@ -668,6 +935,7 @@ export class KanbanView extends BasesView {
 
 		const cardEl = evt.item;
 		const entryPath = cardEl.getAttribute(DATA_ATTRIBUTES.ENTRY_PATH);
+		const milestoneIndex = this.parseMilestoneIndex(cardEl.getAttribute(DATA_ATTRIBUTES.MILESTONE_INDEX));
 		
 		if (!entryPath) {
 			console.warn('No entry path found on card');
@@ -746,6 +1014,26 @@ export class KanbanView extends BasesView {
 			const laneValueToSet = newLaneValue === UNCATEGORIZED_LABEL ? '' : newLaneValue;
 
 			await this.app.fileManager.processFrontMatter(entry.file, (frontmatter: Record<string, unknown>) => {
+				if (milestoneIndex !== null && this.milestonePropertyId) {
+					this.updateMilestoneFrontmatterProperty(
+						frontmatter,
+						this.milestonePropertyId,
+						milestoneIndex,
+						this.groupByPropertyId as BasesPropertyId,
+						columnValueToSet
+					);
+					if (this.swimlanePropertyId && newLaneValue !== null) {
+						this.updateMilestoneFrontmatterProperty(
+							frontmatter,
+							this.milestonePropertyId,
+							milestoneIndex,
+							this.swimlanePropertyId,
+							laneValueToSet
+						);
+					}
+					return;
+				}
+
 				this.setFrontmatterProperty(frontmatter, this.groupByPropertyId as BasesPropertyId, columnValueToSet);
 				if (this.swimlanePropertyId && newLaneValue !== null) {
 					this.setFrontmatterProperty(frontmatter, this.swimlanePropertyId, laneValueToSet);
@@ -798,6 +1086,38 @@ export class KanbanView extends BasesView {
 		}
 
 		frontmatter[propertyName] = value;
+	}
+
+	private updateMilestoneFrontmatterProperty(
+		frontmatter: Record<string, unknown>,
+		milestonePropertyId: BasesPropertyId,
+		milestoneIndex: number,
+		propertyId: BasesPropertyId,
+		value: string
+	): void {
+		const milestonePropertyName = parsePropertyId(milestonePropertyId).name;
+		const milestones = normalizeMilestoneFrontmatter(frontmatter[milestonePropertyName]);
+		const currentMilestone = milestones[milestoneIndex];
+
+		if (currentMilestone === undefined) {
+			return;
+		}
+
+		const milestoneObject = typeof currentMilestone === 'object' && currentMilestone !== null && !Array.isArray(currentMilestone)
+			? { ...(currentMilestone as Record<string, unknown>) }
+			: { title: String(currentMilestone ?? '') };
+		setMilestoneValue(milestoneObject, parsePropertyId(propertyId).name, value);
+		milestones[milestoneIndex] = milestoneObject;
+		frontmatter[milestonePropertyName] = milestones;
+	}
+
+	private parseMilestoneIndex(value: string | null): number | null {
+		if (value === null) {
+			return null;
+		}
+
+		const parsed = Number.parseInt(value, 10);
+		return Number.isInteger(parsed) ? parsed : null;
 	}
 
 	private initializeColumnSortable(): void {
@@ -1044,6 +1364,13 @@ export class KanbanView extends BasesView {
 				key: 'swimlaneProperty',
 				filter: (prop: string) => !prop.startsWith('file.'),
 				placeholder: 'Optional property',
+			},
+			{
+				displayName: 'Milestones',
+				type: 'property',
+				key: 'milestoneProperty',
+				filter: (prop: string) => !prop.startsWith('file.'),
+				placeholder: 'Optional list property',
 			},
 			{
 				displayName: 'Show swimlanes',

@@ -21,6 +21,7 @@ import {
 	PROPERTY_STATUS,
 	PROPERTY_PRIORITY,
 	PROPERTY_TAGS,
+	PROPERTY_MILESTONES,
 	TEST_PROPERTIES,
 } from './fixtures.ts';
 
@@ -130,6 +131,7 @@ describe('Data Rendering - Swimlanes', () => {
 		const entries = createEntriesWithMixedProperties();
 		controller = createMockQueryController(entries, TEST_PROPERTIES);
 		controller.app = app;
+		controller.config.set('columnColors', ['Doing: #88aaff']);
 		controller.config.getAsPropertyId = (key: string) => {
 			if (key === 'groupByProperty') return PROPERTY_STATUS;
 			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
@@ -445,6 +447,231 @@ describe('Data Rendering - Card Rendering', () => {
 		const title = firstCard.querySelector('.obk-card-title');
 		assert.ok(title, 'Card title should exist');
 		assert.ok(title?.textContent, 'Card title should have text content');
+	});
+
+	test('Milestone notes render separate cards per milestone', () => {
+		const entries = [
+			createMockBasesEntry(createMockTFile('Project Alpha.md'), {
+				[PROPERTY_STATUS]: 'Backlog',
+				[PROPERTY_PRIORITY]: 'High',
+				[PROPERTY_MILESTONES]: [
+					{ title: 'Discovery', status: 'Ready', priority: 'Workstream A' },
+					{ title: 'Launch beta', status: 'In Progress', priority: 'Workstream B' },
+				],
+			}),
+		];
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.set('columnColors', ['Doing: #88aaff']);
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			if (key === 'milestoneProperty') return PROPERTY_MILESTONES;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const cards = view.containerEl.querySelectorAll('.obk-card');
+		assert.strictEqual(cards.length, 2, 'Each milestone should render as its own card');
+
+		const readyCard = view.containerEl.querySelector('[data-column-value="Ready"] .obk-card') as HTMLElement | null;
+		assert.ok(readyCard, 'Milestone card should respect milestone-specific group value');
+		assert.strictEqual(
+			readyCard?.querySelector('.obk-card-title')?.textContent,
+			'Discovery',
+			'Milestone title should become the card title'
+		);
+		assert.strictEqual(
+			readyCard?.querySelector('.obk-card-source-label')?.textContent,
+			'◈ Milestone',
+			'Milestone cards should show an explicit milestone marker'
+		);
+		assert.strictEqual(
+			readyCard?.querySelector('.obk-card-source-name')?.textContent,
+			'Project Alpha',
+			'Milestone cards should show the parent project note prominently'
+		);
+		assert.strictEqual(
+			readyCard?.getAttribute('data-milestone-index'),
+			'0',
+			'Milestone cards should carry their milestone index for updates'
+		);
+
+		const lane = readyCard?.closest('.obk-lane');
+		assert.strictEqual(
+			lane?.getAttribute('data-lane-value'),
+			'Workstream A',
+			'Milestone cards should respect milestone-specific swimlane values'
+		);
+	});
+
+	test('Milestones fall back to note properties when they do not override board fields', () => {
+		const entries = [
+			createMockBasesEntry(createMockTFile('Project Beta.md'), {
+				[PROPERTY_STATUS]: 'Ready',
+				[PROPERTY_PRIORITY]: 'Personal',
+				[PROPERTY_MILESTONES]: [
+					'Prep materials',
+					{ title: 'Ship wrap-up' },
+				],
+			}),
+		];
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.set('columnColors', ['Doing: #88aaff']);
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			if (key === 'milestoneProperty') return PROPERTY_MILESTONES;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const readyColumnCards = view.containerEl.querySelectorAll('[data-column-value="Ready"] .obk-card');
+		assert.strictEqual(readyColumnCards.length, 2, 'Milestones should inherit the note status when they do not override it');
+		const personalLaneCards = view.containerEl.querySelectorAll('[data-lane-value="Personal"] .obk-card');
+		assert.strictEqual(personalLaneCards.length, 2, 'Milestones should inherit the note swimlane when they do not override it');
+	});
+
+	test('Milestones fall back to metadata cache frontmatter when Bases does not expose structured list values', () => {
+		const entries = [
+			createMockBasesEntry(createMockTFile('Project Cache.md'), {
+				[PROPERTY_STATUS]: 'Backlog',
+				[PROPERTY_MILESTONES]: '2 milestones',
+			}),
+		];
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		app.__setFileFrontmatter('Project Cache.md', {
+			milestones: [
+				{ title: 'Discovery', status: 'Ready' },
+				{ title: 'Build beta', status: 'Doing' },
+			],
+		});
+		controller.config.set('columnColors', ['Doing: #88aaff']);
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'milestoneProperty') return PROPERTY_MILESTONES;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const cards = view.containerEl.querySelectorAll('.obk-card');
+		assert.strictEqual(cards.length, 2, 'Structured milestones from metadata cache should still render as separate cards');
+	});
+
+	test('Milestone cards only render tasks from their matching heading section', async () => {
+		const entries = [
+			createMockBasesEntry(createMockTFile('Project Sections.md'), {
+				[PROPERTY_STATUS]: 'Backlog',
+				[PROPERTY_MILESTONES]: [
+					{ title: 'Discovery', status: 'Ready' },
+					{ title: 'Build beta', status: 'Doing' },
+				],
+			}),
+		];
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.set('columnColors', ['Doing: #88aaff']);
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'milestoneProperty') return PROPERTY_MILESTONES;
+			return null;
+		};
+		app.__setFileContent('Project Sections.md', [
+			'# Project Sections',
+			'',
+			'## Discovery',
+			'- [ ] Interview users',
+			'- [x] Draft brief',
+			'',
+			'## Build beta',
+			'- [ ] Ship auth flow',
+			'  - [ ] Magic link',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const discoveryCard = view.containerEl.querySelector('[data-entry-path="Project Sections.md"][data-milestone-index="0"]') as HTMLElement;
+		const buildCard = view.containerEl.querySelector('[data-entry-path="Project Sections.md"][data-milestone-index="1"]') as HTMLElement;
+
+		assert.strictEqual(
+			discoveryCard.querySelector('.obk-card-task-counts')?.textContent,
+			'1 open · 1 done',
+			'Discovery card should only count tasks inside the Discovery section'
+		);
+		assert.strictEqual(
+			discoveryCard.querySelectorAll('.obk-task-item').length,
+			1,
+			'Discovery card should hide its completed task by default'
+		);
+		assert.strictEqual(
+			buildCard.querySelector('.obk-card-task-counts')?.textContent,
+			'2 open · 0 done',
+			'Build beta card should only count tasks inside the Build beta section'
+		);
+		assert.strictEqual(
+			buildCard.querySelectorAll('.obk-task-item').length,
+			2,
+			'Build beta card should render only its own nested tasks'
+		);
+	});
+
+	test('Milestone task checkbox updates only the matching section task', async () => {
+		const entries = [
+			createMockBasesEntry(createMockTFile('Project Toggle.md'), {
+				[PROPERTY_STATUS]: 'Backlog',
+				[PROPERTY_MILESTONES]: [
+					{ title: 'Discovery', status: 'Ready' },
+					{ title: 'Build beta', status: 'Doing' },
+				],
+			}),
+		];
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.set('columnColors', ['Doing: #88aaff']);
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'milestoneProperty') return PROPERTY_MILESTONES;
+			return null;
+		};
+		app.__setFileContent('Project Toggle.md', [
+			'# Project Toggle',
+			'',
+			'## Discovery',
+			'- [ ] Interview users',
+			'',
+			'## Build beta',
+			'- [ ] Ship auth flow',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const buildCard = view.containerEl.querySelector('[data-entry-path="Project Toggle.md"][data-milestone-index="1"]') as HTMLElement;
+		const checkbox = buildCard.querySelector('.obk-task-checkbox') as HTMLInputElement;
+		assert.ok(checkbox, 'Milestone section task checkbox should exist');
+
+		checkbox.checked = true;
+		checkbox.dispatchEvent(new window.Event('change', { bubbles: true }));
+		await flushAsyncWork();
+
+		assert.match(app.__getFileContent('Project Toggle.md'), /## Discovery[\s\S]*- \[ \] Interview users/, 'Discovery section should remain unchanged');
+		assert.match(app.__getFileContent('Project Toggle.md'), /## Build beta[\s\S]*- \[x\] Ship auth flow/, 'Build beta task should be updated inside its own section');
 	});
 
 	test('Card renders markdown tasks from the note', async () => {
@@ -1168,6 +1395,65 @@ describe('Drag and Drop - Card Drop Handling', () => {
 		assert.strictEqual(frontmatter.status, 'Doing', 'Column property should update');
 		assert.strictEqual(frontmatter.priority, 'Medium', 'Swimlane property should update');
 	});
+
+	test('handleCardDrop updates milestone frontmatter when a milestone card moves', async () => {
+		const entries = [
+			createMockBasesEntry(createMockTFile('Project Move.md'), {
+				[PROPERTY_STATUS]: 'Backlog',
+				[PROPERTY_PRIORITY]: 'Work',
+				[PROPERTY_MILESTONES]: [
+					{ title: 'Discovery', status: 'Ready', priority: 'Alpha' },
+					{ title: 'QA', status: 'Backlog', priority: 'Beta' },
+				],
+			}),
+		];
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.set('columnColors', ['Doing: #88aaff']);
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			if (key === 'milestoneProperty') return PROPERTY_MILESTONES;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const fromColumn = view.containerEl.querySelector('[data-lane-value="Alpha"] [data-column-value="Ready"]') as HTMLElement;
+		const toColumn = view.containerEl.querySelector('[data-lane-value="Beta"] [data-column-value="Doing"]') as HTMLElement;
+		const card = fromColumn.querySelector('.obk-card') as HTMLElement;
+		const fromBody = fromColumn.querySelector('.obk-column-body') as HTMLElement;
+		const toBody = toColumn.querySelector('.obk-column-body') as HTMLElement;
+
+		await (view as any).handleCardDrop({
+			item: card,
+			from: fromBody,
+			to: toBody,
+			oldIndex: 0,
+			newIndex: 0,
+		});
+
+		assert.strictEqual(app.fileManager.processFrontMatter.calls.length, 1, 'processFrontMatter should be called for milestone moves');
+		const updateFn = app.fileManager.processFrontMatter.calls[0][1];
+		const frontmatter: Record<string, unknown> = {
+			status: 'Backlog',
+			priority: 'Work',
+			milestones: [
+				{ title: 'Discovery', status: 'Ready', priority: 'Alpha' },
+				{ title: 'QA', status: 'Backlog', priority: 'Beta' },
+			],
+		};
+		await updateFn(frontmatter);
+
+		assert.deepStrictEqual(frontmatter.milestones, [
+			{ title: 'Discovery', status: 'Doing', priority: 'Beta' },
+			{ title: 'QA', status: 'Backlog', priority: 'Beta' },
+		], 'Milestone card moves should update only the dragged milestone object');
+		assert.strictEqual(frontmatter.status, 'Backlog', 'Parent note status should remain unchanged');
+		assert.strictEqual(frontmatter.priority, 'Work', 'Parent note swimlane should remain unchanged');
+	});
 });
 
 describe('Drag and Drop - Drop Error Handling', () => {
@@ -1284,6 +1570,65 @@ describe('Data Updates', () => {
 
 		assert.strictEqual(loadConfigCalled, true, 'loadConfig should be called');
 		assert.strictEqual(renderCalled, true, 'render should be called');
+	});
+
+	test('onDataUpdated preserves scroll position', () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		controller.config.set('columnColors', [
+			'Backlog: #6699ff',
+			'Ready: #77cc88',
+			'Doing: #ffcc66',
+			'Done: #999999',
+		]);
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const boardScroller = view.containerEl.querySelector('.obk-board-scroller') as HTMLElement;
+		assert.ok(boardScroller, 'Board scroller should exist');
+
+		scrollEl.scrollTop = 180;
+		boardScroller.scrollLeft = 96;
+
+		view.onDataUpdated();
+
+		assert.strictEqual(scrollEl.scrollTop, 180, 'Main vertical scroll should be preserved after rerender');
+		assert.strictEqual(
+			(view.containerEl.querySelector('.obk-board-scroller') as HTMLElement).scrollLeft,
+			96,
+			'Board horizontal scroll should be preserved after rerender'
+		);
+	});
+
+	test('onDataUpdated preserves swimlane vertical scroll position', () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const swimlanesEl = view.containerEl.querySelector('.obk-swimlanes') as HTMLElement;
+		assert.ok(swimlanesEl, 'Swimlanes scroller should exist');
+
+		swimlanesEl.scrollTop = 220;
+		view.onDataUpdated();
+
+		assert.strictEqual(
+			(view.containerEl.querySelector('.obk-swimlanes') as HTMLElement).scrollTop,
+			220,
+			'Swimlane vertical scroll should be preserved after rerender'
+		);
 	});
 });
 

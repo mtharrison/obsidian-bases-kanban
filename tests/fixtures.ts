@@ -5,6 +5,7 @@ export const PROPERTY_STATUS = 'note.status' as BasesPropertyId;
 export const PROPERTY_PRIORITY = 'note.priority' as BasesPropertyId;
 export const PROPERTY_CATEGORY = 'note.category' as BasesPropertyId;
 export const PROPERTY_TAGS = 'note.tags' as BasesPropertyId;
+export const PROPERTY_MILESTONES = 'note.milestones' as BasesPropertyId;
 
 // Sample entries with status property
 export function createEntriesWithStatus(): BasesEntry[] {
@@ -82,4 +83,5 @@ export const TEST_PROPERTIES: BasesPropertyId[] = [
 	PROPERTY_PRIORITY,
 	PROPERTY_CATEGORY,
 	PROPERTY_TAGS,
+	PROPERTY_MILESTONES,
 ];

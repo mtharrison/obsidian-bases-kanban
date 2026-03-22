@@ -9,18 +9,27 @@ export interface NoteTask {
 }
 
 const TASK_LINE_REGEX = /^(\s*)([-*+]) \[( |x|X)\] (.*)$/;
+const HEADING_REGEX = /^(#{1,6})\s+(.*)$/;
 
-export function parseMarkdownTasks(content: string): NoteTask[] {
-	const tasks = content
-		.split(/\r?\n/)
-		.map((line, index) => {
+interface TaskParseBounds {
+	startLine?: number;
+	endLine?: number;
+}
+
+export function parseMarkdownTasks(content: string, bounds: TaskParseBounds = {}): NoteTask[] {
+	const lines = content.split(/\r?\n/);
+	const startLine = bounds.startLine ?? 0;
+	const endLine = bounds.endLine ?? lines.length;
+	const tasks = lines
+		.slice(startLine, endLine)
+		.map((line, localIndex) => {
 			const match = line.match(TASK_LINE_REGEX);
 			if (!match) {
 				return null;
 			}
 
 			return {
-				line: index,
+				line: startLine + localIndex,
 				indent: match[1],
 				depth: 0,
 				bullet: match[2],
@@ -46,6 +55,60 @@ export function parseMarkdownTasks(content: string): NoteTask[] {
 	});
 
 	return tasks;
+}
+
+export function findHeadingSection(
+	content: string,
+	headingTitle: string
+): { startLine: number; endLine: number } | null {
+	const normalizedTarget = normalizeHeadingText(headingTitle);
+	if (!normalizedTarget) {
+		return null;
+	}
+
+	const lines = content.split(/\r?\n/);
+	let matchedHeadingLevel: number | null = null;
+	let matchedHeadingLine = -1;
+
+	for (let index = 0; index < lines.length; index += 1) {
+		const match = lines[index]?.match(HEADING_REGEX);
+		if (!match) {
+			continue;
+		}
+
+		const headingLevel = match[1].length;
+		const headingText = normalizeHeadingText(match[2]);
+		if (headingText !== normalizedTarget) {
+			continue;
+		}
+
+		matchedHeadingLevel = headingLevel;
+		matchedHeadingLine = index;
+		break;
+	}
+
+	if (matchedHeadingLevel === null || matchedHeadingLine === -1) {
+		return null;
+	}
+
+	let endLine = lines.length;
+	for (let index = matchedHeadingLine + 1; index < lines.length; index += 1) {
+		const match = lines[index]?.match(HEADING_REGEX);
+		if (!match) {
+			continue;
+		}
+
+		const headingLevel = match[1].length;
+		if (headingLevel <= matchedHeadingLevel) {
+			endLine = index;
+			break;
+		}
+	}
+
+	return {
+		startLine: matchedHeadingLine + 1,
+		endLine,
+	};
 }
 
 export function updateTaskCompletion(
@@ -91,4 +154,11 @@ function getIndentWidth(indent: string): number {
 		width += char === '\t' ? 4 : 1;
 	}
 	return width;
+}
+
+function normalizeHeadingText(value: string): string {
+	return value
+		.trim()
+		.replace(/\s+/g, ' ')
+		.toLowerCase();
 }

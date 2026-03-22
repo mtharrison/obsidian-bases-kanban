@@ -176,12 +176,15 @@ export function createMockApp(): App & {
 	workspace: { openLinkText: MockFn };
 	fileManager: { processFrontMatter: MockFn };
 	vault: { cachedRead: MockFn; modify: MockFn };
+	metadataCache: { getFileCache(file: TFile): { frontmatter?: Record<string, unknown> } | null };
 	__setFileContent(path: string, content: string): void;
 	__getFileContent(path: string): string;
+	__setFileFrontmatter(path: string, frontmatter: Record<string, unknown>): void;
 } {
 	const openLinkText = createMockFn();
 	const processFrontMatter = createMockFn();
 	const fileContents = new Map<string, string>();
+	const fileFrontmatter = new Map<string, Record<string, unknown>>();
 	const cachedRead = function(file: TFile) {
 		cachedRead.calls.push([file]);
 		return Promise.resolve(fileContents.get(file.path) ?? '');
@@ -204,6 +207,12 @@ export function createMockApp(): App & {
 		workspace: {
 			openLinkText,
 		} as any,
+		metadataCache: {
+			getFileCache(file: TFile) {
+				const frontmatter = fileFrontmatter.get(file.path);
+				return frontmatter ? { frontmatter } : null;
+			},
+		} as any,
 		fileManager: {
 			processFrontMatter,
 		} as any,
@@ -216,6 +225,9 @@ export function createMockApp(): App & {
 		},
 		__getFileContent(path: string) {
 			return fileContents.get(path) ?? '';
+		},
+		__setFileFrontmatter(path: string, frontmatter: Record<string, unknown>) {
+			fileFrontmatter.set(path, frontmatter);
 		},
 	} as any;
 }

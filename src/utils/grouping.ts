@@ -1,4 +1,3 @@
-import type { BasesEntry } from 'obsidian';
 import { UNCATEGORIZED_LABEL } from '../constants.ts';
 
 /**
@@ -7,17 +6,17 @@ import { UNCATEGORIZED_LABEL } from '../constants.ts';
  * @param key - The key to ensure exists
  * @returns The array for the specified key
  */
-export function ensureGroupExists(
-	grouped: Map<string, BasesEntry[]>,
+export function ensureGroupExists<T>(
+	grouped: Map<string, T[]>,
 	key: string
-): BasesEntry[] {
+): T[] {
 	if (!grouped.has(key)) {
 		grouped.set(key, []);
 	}
 	const group = grouped.get(key);
 	if (!group) {
 		// This should never happen, but TypeScript needs the check
-		const newGroup: BasesEntry[] = [];
+		const newGroup: T[] = [];
 		grouped.set(key, newGroup);
 		return newGroup;
 	}
@@ -45,6 +44,5 @@ export function normalizePropertyValue(value: unknown): string {
 	const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
 	return stringValue.trim() === '' ? UNCATEGORIZED_LABEL : stringValue.trim();
 }
-
 
 

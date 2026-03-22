@@ -43,6 +43,9 @@ export interface App {
 	workspace: {
 		openLinkText(path: string, source: string, newLeaf: boolean): void;
 	};
+	metadataCache?: {
+		getFileCache(file: TFile): { frontmatter?: Record<string, unknown> } | null;
+	};
 	fileManager: {
 		processFrontMatter(file: TFile, fn: (frontmatter: any) => void | Promise<void>): Promise<void>;
 	};
