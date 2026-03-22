@@ -8,8 +8,8 @@
 	--obk-panel-bg: color-mix(in srgb, var(--background-secondary) 94%, white 6%);
 	--obk-panel-border: color-mix(in srgb, var(--background-modifier-border) 82%, var(--obk-pastel-lavender) 18%);
 	--obk-panel-header: linear-gradient(135deg, var(--obk-pastel-lavender), var(--obk-pastel-sky) 55%, var(--obk-pastel-mint));
-	--obk-card-bg: color-mix(in srgb, var(--background-primary) 96%, white 4%);
-	--obk-card-border: color-mix(in srgb, var(--background-modifier-border) 84%, var(--obk-pastel-sky) 16%);
+	--obk-card-bg: color-mix(in srgb, var(--background-primary) 95%, white 5%);
+	--obk-card-border: color-mix(in srgb, var(--background-modifier-border) 76%, white 24%);
 	--obk-tag-bg: linear-gradient(135deg, var(--obk-pastel-peach), var(--obk-pastel-butter));
 	--obk-tag-text: var(--text-normal);
 	--obk-accent-soft: color-mix(in srgb, var(--interactive-accent) 68%, var(--obk-pastel-sky) 32%);
@@ -70,13 +70,21 @@
 }
 
 /* Kanban Board */
+.obk-board-scroller {
+	overflow-x: auto;
+	padding-bottom: 10px;
+}
+
+.obk-view-container > .obk-board-scroller {
+	flex: 1;
+	min-height: 0;
+}
+
 .obk-board {
 	display: flex;
 	gap: 15px;
-	overflow-x: auto;
-	overflow-y: hidden;
-	flex: 1;
-	padding-bottom: 10px;
+	min-width: 100%;
+	align-items: flex-start;
 }
 
 .obk-swimlanes {
@@ -93,7 +101,14 @@
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
-	min-height: 0;
+	padding: 10px 10px 14px;
+	border-radius: 18px;
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--background-secondary) 92%, white 8%),
+		color-mix(in srgb, var(--background-primary) 97%, white 3%)
+	);
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 78%, white 22%);
 }
 
 .obk-lane-header {
@@ -101,7 +116,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
-	padding: 0 4px;
+	padding: 2px 6px 0;
 }
 
 .obk-lane-drag-handle {
@@ -126,7 +141,7 @@
 	font-weight: 600;
 	letter-spacing: 0.02em;
 	text-transform: uppercase;
-	color: var(--text-muted);
+	color: color-mix(in srgb, var(--text-muted) 88%, white 12%);
 }
 
 .obk-lane-count {
@@ -138,26 +153,30 @@
 	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, white 20%);
 }
 
-.obk-board::-webkit-scrollbar {
+.obk-board-scroller::-webkit-scrollbar {
 	height: 8px;
 }
 
-.obk-board::-webkit-scrollbar-track {
+.obk-board-scroller::-webkit-scrollbar-track {
 	background: var(--background-secondary);
 	border-radius: 4px;
 }
 
-.obk-board::-webkit-scrollbar-thumb {
+.obk-board-scroller::-webkit-scrollbar-thumb {
 	background: var(--background-modifier-border);
 	border-radius: 4px;
 }
 
-.obk-board::-webkit-scrollbar-thumb:hover {
+.obk-board-scroller::-webkit-scrollbar-thumb:hover {
 	background: var(--background-modifier-border-hover);
 }
 
 /* Kanban Column */
 .obk-column {
+	--obk-column-header-bg: var(--obk-panel-header);
+	--obk-column-header-border: var(--obk-panel-border);
+	--obk-column-count-bg: color-mix(in srgb, var(--background-primary) 84%, white 16%);
+	--obk-column-count-border: color-mix(in srgb, var(--background-modifier-border) 80%, white 20%);
 	flex: 1 1 280px;
 	min-width: 280px;
 	display: flex;
@@ -166,15 +185,41 @@
 	border-radius: 16px;
 	border: 1px solid var(--obk-panel-border);
 	min-height: 200px;
-	max-height: 100%;
-	overflow: hidden;
+	overflow: visible;
 	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.obk-column[data-column-tone="success"] {
+	--obk-column-header-bg: linear-gradient(135deg, rgba(154, 189, 170, 0.34), rgba(173, 205, 187, 0.28));
+	--obk-column-header-border: rgba(128, 179, 148, 0.38);
+	--obk-column-count-bg: rgba(210, 237, 219, 0.5);
+	--obk-column-count-border: rgba(137, 187, 158, 0.34);
+}
+
+.obk-column[data-column-tone="progress"] {
+	--obk-column-header-bg: linear-gradient(135deg, rgba(154, 171, 194, 0.34), rgba(174, 191, 212, 0.28));
+	--obk-column-header-border: rgba(130, 160, 198, 0.34);
+	--obk-column-count-bg: rgba(211, 225, 243, 0.46);
+	--obk-column-count-border: rgba(136, 166, 204, 0.32);
+}
+
+.obk-column[data-column-tone="ready"] {
+	--obk-column-header-bg: linear-gradient(135deg, rgba(184, 176, 150, 0.32), rgba(202, 194, 166, 0.26));
+	--obk-column-header-border: rgba(192, 172, 120, 0.3);
+	--obk-column-count-bg: rgba(240, 231, 202, 0.46);
+	--obk-column-count-border: rgba(196, 177, 126, 0.3);
+}
+
+.obk-column-empty {
+	box-shadow: none;
 }
 
 .obk-column-header {
 	padding: 12px 16px;
-	background: var(--obk-panel-header);
-	border-bottom: 1px solid var(--obk-panel-border);
+	background: var(--obk-column-header-bg);
+	border-bottom: 1px solid var(--obk-column-header-border);
+	border-top-left-radius: 16px;
+	border-top-right-radius: 16px;
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -213,37 +258,22 @@
 .obk-column-count {
 	font-size: 12px;
 	color: var(--text-normal);
-	background: color-mix(in srgb, var(--background-primary) 84%, white 16%);
+	background: var(--obk-column-count-bg);
 	padding: 2px 8px;
 	border-radius: 12px;
-	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, white 20%);
+	border: 1px solid var(--obk-column-count-border);
 }
 
 .obk-column-body {
-	flex: 1;
-	overflow-y: auto;
 	padding: 10px;
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
-	min-height: 0;
+	min-height: 140px;
 }
 
-.obk-column-body::-webkit-scrollbar {
-	width: 6px;
-}
-
-.obk-column-body::-webkit-scrollbar-track {
-	background: transparent;
-}
-
-.obk-column-body::-webkit-scrollbar-thumb {
-	background: var(--background-modifier-border);
-	border-radius: 3px;
-}
-
-.obk-column-body::-webkit-scrollbar-thumb:hover {
-	background: var(--background-modifier-border-hover);
+.obk-column-empty .obk-column-body {
+	opacity: 0.72;
 }
 
 /* Kanban Card */
@@ -251,7 +281,7 @@
 	background: var(--obk-card-bg);
 	border: 1px solid var(--obk-card-border);
 	border-radius: 14px;
-	padding: 12px;
+	padding: 13px 14px;
 	cursor: pointer;
 	transition: all 0.2s ease;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -269,45 +299,68 @@
 	align-items: start;
 	column-gap: 8px;
 	row-gap: 6px;
+	padding-bottom: 9px;
+	margin-bottom: 9px;
+	border-bottom: 1px solid color-mix(in srgb, var(--obk-card-border) 78%, white 22%);
 }
 
 .obk-card-title {
 	grid-column: 1;
-	font-weight: 500;
-	font-size: 14px;
+	font-weight: 650;
+	font-size: 16px;
 	color: var(--text-normal);
 	margin-bottom: 0;
-	line-height: 1.4;
+	line-height: 1.3;
 	word-wrap: break-word;
 }
 
-.obk-card-tags {
+.obk-card-badges {
 	grid-column: 2;
 	justify-self: end;
 	max-width: 180px;
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: flex-end;
+	align-items: flex-start;
 	gap: 4px;
 }
 
+.obk-card-tags {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 4px;
+}
+
+.obk-card-swimlane-pill,
 .obk-card-tag-pill {
-	padding: 3px 8px;
+	padding: 2px 7px;
 	border-radius: 999px;
+	font-size: 10px;
+	line-height: 1.25;
+	white-space: nowrap;
+	box-shadow: none;
+	opacity: 0.86;
+}
+
+.obk-card-swimlane-pill {
+	background: color-mix(in srgb, var(--background-secondary) 72%, white 28%);
+	color: var(--text-normal);
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, white 28%);
+	font-weight: 600;
+}
+
+.obk-card-tag-pill {
 	background: var(--obk-tag-bg);
 	color: var(--obk-tag-text);
-	font-size: 11px;
-	line-height: 1.3;
-	white-space: nowrap;
-	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 75%, white 25%);
-	box-shadow: none;
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 65%, white 35%);
 }
 
 .obk-card-meta {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	margin-top: 8px;
+	gap: 5px;
+	margin-top: 0;
 }
 
 .obk-card-meta-row {
@@ -332,10 +385,47 @@
 .obk-card-tasks {
 	display: flex;
 	flex-direction: column;
+	gap: 9px;
+	margin-top: 0;
+	padding-top: 0;
+	border-top: none;
+}
+
+.obk-card-task-summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding-top: 0;
+}
+
+.obk-card-task-counts {
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--text-muted);
+	letter-spacing: 0.01em;
+}
+
+.obk-card-task-toggle {
+	padding: 2px 6px;
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 78%, white 22%);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--background-primary) 88%, white 12%);
+	color: var(--text-muted);
+	font-size: 10px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.obk-card-task-toggle:hover {
+	color: var(--text-normal);
+	border-color: var(--obk-accent-soft);
+}
+
+.obk-card-task-list {
+	display: flex;
+	flex-direction: column;
 	gap: 8px;
-	margin-top: 10px;
-	padding-top: 10px;
-	border-top: 1px solid color-mix(in srgb, var(--obk-card-border) 75%, white 25%);
 }
 
 .obk-task-item {

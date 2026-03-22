@@ -7,6 +7,8 @@ import {
 	createDivWithMethods,
 	createMockQueryController,
 	createMockApp,
+	createMockBasesEntry,
+	createMockTFile,
 	mockSortable,
 	addClosestPolyfill,
 	setupKanbanViewWithApp,
@@ -148,6 +150,31 @@ describe('Data Rendering - Swimlanes', () => {
 
 		const columns = highLane?.querySelectorAll('.obk-column');
 		assert.strictEqual(columns?.length, 3, 'Each swimlane should render all board columns');
+	});
+
+	test('render hides swimlanes when visibility toggle is off', () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+		controller.config.set('showSwimlanes', false);
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const swimlanes = view.containerEl.querySelectorAll('.obk-lane');
+		assert.strictEqual(swimlanes.length, 0, 'Swimlanes should not render when the toggle is off');
+
+		const board = view.containerEl.querySelector('.obk-board');
+		assert.ok(board, 'Flat board should render when swimlanes are hidden');
+
+		const columns = board?.querySelectorAll('.obk-column');
+		assert.strictEqual(columns?.length, 3, 'Flat board should still render all columns');
 	});
 });
 
@@ -298,6 +325,7 @@ describe('Data Rendering - Column Rendering', () => {
 
 		const header = firstColumn.querySelector('.obk-column-header');
 		assert.ok(header, 'Column header should exist');
+		assert.ok(firstColumn.getAttribute('data-column-tone'), 'Column should have a semantic tone');
 
 		const title = header?.querySelector('.obk-column-title');
 		assert.ok(title, 'Column title should exist');
@@ -310,6 +338,33 @@ describe('Data Rendering - Column Rendering', () => {
 		assert.ok(
 			body?.getAttribute('data-sortable-container'),
 			'Column body should have data-sortable-container attribute'
+		);
+	});
+
+	test('Known status labels map to semantic column tones', () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		assert.strictEqual(
+			view.containerEl.querySelector('[data-column-value="Done"]')?.getAttribute('data-column-tone'),
+			'success',
+			'Done should map to success tone'
+		);
+		assert.strictEqual(
+			view.containerEl.querySelector('[data-column-value="Doing"]')?.getAttribute('data-column-tone'),
+			'progress',
+			'Doing should map to progress tone'
+		);
+		assert.strictEqual(
+			view.containerEl.querySelector('[data-column-value="To Do"]')?.getAttribute('data-column-tone'),
+			'ready',
+			'To Do should map to ready tone'
 		);
 	});
 });
@@ -368,11 +423,43 @@ describe('Data Rendering - Card Rendering', () => {
 		assert.ok(card, 'Card should exist');
 
 		const tasks = card?.querySelectorAll('.obk-task-item');
-		assert.strictEqual(tasks?.length, 2, 'Card should render tasks from note content');
+		assert.strictEqual(tasks?.length, 1, 'Card should hide completed tasks by default');
+		assert.strictEqual(
+			card?.querySelector('.obk-card-task-counts')?.textContent,
+			'1 open · 1 done',
+			'Card should render task summary counts'
+		);
+		assert.ok(card?.querySelector('.obk-card-task-toggle'), 'Card should render toggle for completed tasks');
 
 		const checkboxes = card?.querySelectorAll('.obk-task-checkbox') ?? document.querySelectorAll('.obk-task-checkbox');
 		assert.strictEqual((checkboxes[0] as HTMLInputElement).checked, false, 'First task should be unchecked');
-		assert.strictEqual((checkboxes[1] as HTMLInputElement).checked, true, 'Second task should be checked');
+	});
+
+	test('Completed tasks can be expanded and collapsed inline', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', [
+			'- [ ] First subtask',
+			'- [x] Done subtask',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]') as HTMLElement;
+		const toggle = card.querySelector('.obk-card-task-toggle') as HTMLButtonElement;
+		assert.ok(toggle, 'Toggle should exist');
+
+		toggle.click();
+		assert.strictEqual(card.querySelectorAll('.obk-task-item').length, 2, 'Expanded card should show completed tasks');
+		assert.strictEqual(app.workspace.openLinkText.calls.length, 0, 'Expanding tasks should not open the note');
+
+		(card.querySelector('.obk-card-task-toggle') as HTMLButtonElement).click();
+		assert.strictEqual(card.querySelectorAll('.obk-task-item').length, 1, 'Collapsed card should hide completed tasks again');
 	});
 
 	test('Card preserves nested task indentation from the note', async () => {
@@ -396,6 +483,53 @@ describe('Data Rendering - Card Rendering', () => {
 		assert.strictEqual((tasks[0] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '0', 'Top-level task should have depth 0');
 		assert.strictEqual((tasks[1] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '1', 'Nested task should have depth 1');
 		assert.strictEqual((tasks[2] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '2', 'Deeper nested task should have depth 2');
+	});
+
+	test('Card shows summary without toggle when all tasks are open', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', [
+			'- [ ] First subtask',
+			'- [ ] Second subtask',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]');
+		assert.strictEqual(card?.querySelector('.obk-card-task-counts')?.textContent, '2 open · 0 done');
+		assert.strictEqual(card?.querySelector('.obk-card-task-toggle'), null, 'Open-only cards should not show toggle noise');
+		assert.strictEqual(card?.querySelectorAll('.obk-task-item').length, 2, 'Open tasks should stay visible');
+	});
+
+	test('Card with only completed tasks can expand them from the summary', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', [
+			'- [x] Done subtask',
+			'  - [x] Nested done',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task 1.md"]') as HTMLElement;
+		assert.strictEqual(card.querySelectorAll('.obk-task-item').length, 0, 'Completed-only tasks should start collapsed');
+
+		const toggle = card.querySelector('.obk-card-task-toggle') as HTMLButtonElement;
+		toggle.click();
+
+		const tasks = card.querySelectorAll('.obk-task-item');
+		assert.strictEqual(tasks.length, 2, 'Completed-only tasks should be revealable');
+		assert.strictEqual((tasks[1] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '1', 'Expanded nested completed tasks should keep indentation');
 	});
 
 	test('Card click handler opens file in workspace', () => {
@@ -443,7 +577,7 @@ describe('Data Rendering - Card Rendering', () => {
 		assert.deepStrictEqual(
 			Array.from(tagPills ?? []).map((pill) => pill.textContent),
 			['work', 'urgent'],
-			'Tag pills should show normalized tag values'
+			'Tag pills should show normalized tag values without leading hashes'
 		);
 	});
 
@@ -479,6 +613,37 @@ describe('Data Rendering - Card Rendering', () => {
 		);
 	});
 
+	test('Tag pills strip leading hash characters', async () => {
+		const entry = {
+			file: { path: 'Task Hash Tags.md', basename: 'Task Hash Tags' },
+			getValue: (propertyId: string) => {
+				if (propertyId === PROPERTY_STATUS) {
+					return { toString: () => 'To Do' };
+				}
+				if (propertyId === PROPERTY_TAGS) {
+					return { toString: () => '#highpri, ##quick' };
+				}
+				return null;
+			},
+		};
+
+		controller = createMockQueryController([entry as any], TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const tagPills = view.containerEl.querySelectorAll('.obk-card-tag-pill');
+		assert.deepStrictEqual(
+			Array.from(tagPills).map((pill) => pill.textContent),
+			['highpri', 'quick'],
+			'Leading hash characters should be removed from displayed pills'
+		);
+	});
+
 	test('Card does not render pills for null-like tag values', async () => {
 		const entry = {
 			file: { path: 'Task Null Tags.md', basename: 'Task Null Tags' },
@@ -505,6 +670,31 @@ describe('Data Rendering - Card Rendering', () => {
 		const tagPills = view.containerEl.querySelectorAll('.obk-card-tag-pill');
 		assert.strictEqual(tagPills.length, 1, 'Only real tag values should render as pills');
 		assert.strictEqual(tagPills[0]?.textContent, 'urgent', 'Null-like tag values should be ignored');
+	});
+
+	test('Card shows swimlane value in header when swimlanes are hidden', async () => {
+		const entry = createMockBasesEntry(createMockTFile('Task Swimlane.md'), {
+			[PROPERTY_STATUS]: 'Doing',
+			[PROPERTY_PRIORITY]: 'High',
+		});
+
+		controller = createMockQueryController([entry], TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+		controller.config.set('showSwimlanes', false);
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const swimlanePill = view.containerEl.querySelector('.obk-card-swimlane-pill');
+		assert.ok(swimlanePill, 'Swimlane value should render in the card header when swimlanes are hidden');
+		assert.strictEqual(swimlanePill?.textContent, 'High', 'Swimlane pill should show the swimlane value');
 	});
 
 	test('Task checkbox updates note content without opening the file', async () => {

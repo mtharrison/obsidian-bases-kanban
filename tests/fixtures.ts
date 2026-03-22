@@ -23,7 +23,7 @@ export function createEntriesWithMixedProperties(): BasesEntry[] {
 		createMockBasesEntry(createMockTFile('Task A.md'), {
 			[PROPERTY_STATUS]: 'To Do',
 			[PROPERTY_PRIORITY]: 'High',
-			[PROPERTY_TAGS]: ['work', 'urgent'],
+			[PROPERTY_TAGS]: ['#work', '#urgent'],
 		}),
 		createMockBasesEntry(createMockTFile('Task B.md'), {
 			[PROPERTY_STATUS]: 'Doing',

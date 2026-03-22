@@ -26,6 +26,7 @@ export class KanbanView extends BasesView {
 	containerEl: HTMLElement;
 	private groupByPropertyId: BasesPropertyId | null = null;
 	private swimlanePropertyId: BasesPropertyId | null = null;
+	private expandedCompletedTaskCards = new Set<string>();
 	private sortableInstances: Sortable[] = [];
 	private columnSortable: Sortable | null = null;
 	private columnSortables: Sortable[] = [];
@@ -50,6 +51,10 @@ export class KanbanView extends BasesView {
 		// Load group by property from config
 		this.groupByPropertyId = this.config.getAsPropertyId('groupByProperty');
 		this.swimlanePropertyId = this.config.getAsPropertyId('swimlaneProperty');
+	}
+
+	private shouldShowSwimlanes(): boolean {
+		return this.config?.get?.('showSwimlanes') !== false;
 	}
 
 	private render(): void {
@@ -82,11 +87,12 @@ export class KanbanView extends BasesView {
 			this.swimlanePropertyId = this.resolveSwimlaneProperty(availablePropertyIds);
 
 			const columnValues = this.getOrderedColumnValues(this.getPropertyValues(entries, this.groupByPropertyId));
-			if (this.swimlanePropertyId) {
+			if (this.swimlanePropertyId && this.shouldShowSwimlanes()) {
 				this.renderSwimlanes(entries, columnValues, this.swimlanePropertyId);
 			} else {
 				const groupedEntries = this.groupEntriesByProperty(entries, this.groupByPropertyId);
-				const boardEl = this.containerEl.createDiv({ cls: CSS_CLASSES.BOARD });
+				const boardScrollerEl = this.containerEl.createDiv({ cls: CSS_CLASSES.BOARD_SCROLLER });
+				const boardEl = boardScrollerEl.createDiv({ cls: CSS_CLASSES.BOARD });
 
 				columnValues.forEach((value) => {
 					const columnEl = this.createColumn(value, groupedEntries.get(value) || []);
@@ -167,7 +173,8 @@ export class KanbanView extends BasesView {
 			laneHeaderEl.createSpan({ text: laneValue, cls: CSS_CLASSES.LANE_TITLE });
 			laneHeaderEl.createSpan({ text: `(${laneEntries.length})`, cls: CSS_CLASSES.LANE_COUNT });
 
-			const boardEl = laneEl.createDiv({ cls: CSS_CLASSES.BOARD });
+			const boardScrollerEl = laneEl.createDiv({ cls: CSS_CLASSES.BOARD_SCROLLER });
+			const boardEl = boardScrollerEl.createDiv({ cls: CSS_CLASSES.BOARD });
 			const groupedByColumn = this.groupEntriesByProperty(laneEntries, this.groupByPropertyId as BasesPropertyId);
 
 			columnValues.forEach((columnValue) => {
@@ -181,6 +188,10 @@ export class KanbanView extends BasesView {
 		const columnEl = document.createElement('div');
 		columnEl.className = CSS_CLASSES.COLUMN;
 		columnEl.setAttribute(DATA_ATTRIBUTES.COLUMN_VALUE, value);
+		columnEl.setAttribute(DATA_ATTRIBUTES.COLUMN_TONE, this.getColumnTone(value));
+		if (entries.length === 0) {
+			columnEl.classList.add(`${CSS_CLASSES.COLUMN}-empty`);
+		}
 
 		// Column header
 		const headerEl = columnEl.createDiv({ cls: CSS_CLASSES.COLUMN_HEADER });
@@ -217,9 +228,18 @@ export class KanbanView extends BasesView {
 		const titleEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE });
 		titleEl.textContent = entry.file.basename;
 
+		const swimlaneHeaderValue = this.getCardSwimlaneHeaderValue(entry);
 		const tagValues = this.getCardTagValues(entry);
-		if (tagValues.length > 0) {
-			const tagsEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_TAGS });
+		if (swimlaneHeaderValue || tagValues.length > 0) {
+			const badgesEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_BADGES });
+			if (swimlaneHeaderValue) {
+				badgesEl.createSpan({
+					text: swimlaneHeaderValue,
+					cls: CSS_CLASSES.CARD_SWIMLANE_PILL,
+				});
+			}
+
+			const tagsEl = badgesEl.createDiv({ cls: CSS_CLASSES.CARD_TAGS });
 			tagValues.forEach((tagValue) => {
 				tagsEl.createSpan({ text: tagValue, cls: CSS_CLASSES.CARD_TAG_PILL });
 			});
@@ -274,6 +294,14 @@ export class KanbanView extends BasesView {
 		}
 	}
 
+	private getCardSwimlaneHeaderValue(entry: BasesEntry): string | null {
+		if (!this.swimlanePropertyId || this.shouldShowSwimlanes()) {
+			return null;
+		}
+
+		return this.formatCardPropertyValue(this.getEntryPropertyValue(entry, this.swimlanePropertyId));
+	}
+
 	private getEntryPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
 		const propertyReader = 'getProperty' in entry && typeof entry.getProperty === 'function'
 			? entry.getProperty.bind(entry)
@@ -323,6 +351,7 @@ export class KanbanView extends BasesView {
 		return normalized
 			.split(',')
 			.map((tag) => tag.trim())
+			.map((tag) => tag.replace(/^#+/, ''))
 			.filter((tag) => tag.length > 0 && !/^(null|undefined)$/i.test(tag));
 	}
 
@@ -373,17 +402,54 @@ export class KanbanView extends BasesView {
 			tasksEl.empty();
 			tasksEl.addEventListener('click', (event) => event.stopPropagation());
 			tasksEl.addEventListener('mousedown', (event) => event.stopPropagation());
-
-			tasks.forEach((task) => {
-				tasksEl.appendChild(this.createTaskItem(entry, task));
-			});
+			this.renderCardTasks(entry, tasks, tasksEl);
 		} catch (error) {
 			console.error('Error loading tasks for card:', entry.file.path, error);
 			tasksEl.remove();
 		}
 	}
 
-	private createTaskItem(entry: BasesEntry, task: NoteTask): HTMLElement {
+	private renderCardTasks(entry: BasesEntry, tasks: NoteTask[], tasksEl: HTMLElement): void {
+		tasksEl.empty();
+
+		const openTasks = tasks.filter((task) => !task.completed);
+		const completedTasks = tasks.filter((task) => task.completed);
+		const isExpanded = this.expandedCompletedTaskCards.has(entry.file.path);
+
+		const summaryEl = tasksEl.createDiv({ cls: CSS_CLASSES.CARD_TASK_SUMMARY });
+		summaryEl.createSpan({
+			text: `${openTasks.length} open · ${completedTasks.length} done`,
+			cls: CSS_CLASSES.CARD_TASK_COUNTS,
+		});
+
+		if (completedTasks.length > 0) {
+			const toggleEl = summaryEl.createEl('button', { cls: CSS_CLASSES.CARD_TASK_TOGGLE });
+			toggleEl.type = 'button';
+			toggleEl.textContent = isExpanded ? 'Hide done' : `Show ${completedTasks.length} done`;
+			toggleEl.addEventListener('click', (event) => {
+				event.stopPropagation();
+				if (isExpanded) {
+					this.expandedCompletedTaskCards.delete(entry.file.path);
+				} else {
+					this.expandedCompletedTaskCards.add(entry.file.path);
+				}
+				this.renderCardTasks(entry, tasks, tasksEl);
+			});
+		}
+
+		const listEl = tasksEl.createDiv({ cls: CSS_CLASSES.CARD_TASK_LIST });
+		const visibleTasks = isExpanded
+			? tasks
+			: tasks.filter((task) => !task.completed);
+
+		visibleTasks.forEach((task) => {
+			listEl.appendChild(this.createTaskItem(entry, task, async () => {
+				this.renderCardTasks(entry, tasks, tasksEl);
+			}));
+		});
+	}
+
+	private createTaskItem(entry: BasesEntry, task: NoteTask, onToggle: () => void | Promise<void>): HTMLElement {
 		const taskEl = document.createElement('label');
 		taskEl.className = CSS_CLASSES.TASK_ITEM;
 		taskEl.setAttribute(DATA_ATTRIBUTES.TASK_LINE, String(task.line));
@@ -405,8 +471,11 @@ export class KanbanView extends BasesView {
 		}
 
 		checkboxEl.addEventListener('click', (event) => event.stopPropagation());
-		checkboxEl.addEventListener('change', () => {
-			void this.handleTaskCheckboxChange(entry, task, checkboxEl, taskEl);
+		checkboxEl.addEventListener('change', async () => {
+			const updated = await this.handleTaskCheckboxChange(entry, task, checkboxEl, taskEl);
+			if (updated) {
+				await onToggle();
+			}
 		});
 
 		taskEl.appendChild(checkboxEl);
@@ -419,10 +488,10 @@ export class KanbanView extends BasesView {
 		task: NoteTask,
 		checkboxEl: HTMLInputElement,
 		taskEl: HTMLElement
-	): Promise<void> {
+	): Promise<boolean> {
 		if (!hasTaskVault(this.app)) {
 			checkboxEl.checked = task.completed;
-			return;
+			return false;
 		}
 
 		const nextCompleted = checkboxEl.checked;
@@ -440,9 +509,11 @@ export class KanbanView extends BasesView {
 			task.completed = nextCompleted;
 			task.originalLine = `${task.indent}${task.bullet} [${nextCompleted ? 'x' : ' '}] ${task.text}`;
 			taskEl.classList.toggle(CSS_CLASSES.TASK_ITEM_COMPLETED, nextCompleted);
+			return true;
 		} catch (error) {
 			console.error('Error updating task checkbox:', entry.file.path, error);
 			checkboxEl.checked = task.completed;
+			return false;
 		} finally {
 			checkboxEl.disabled = false;
 		}
@@ -746,6 +817,20 @@ export class KanbanView extends BasesView {
 		this.config?.set?.(configKey, orders);
 	}
 
+	private getColumnTone(value: string): string {
+		const normalized = value.trim().toLowerCase();
+		if (/^(complete|completed|done)$/.test(normalized)) {
+			return 'success';
+		}
+		if (/^(in-progress|in progress|doing)$/.test(normalized)) {
+			return 'progress';
+		}
+		if (/^(ready|to do|todo|not started)$/.test(normalized)) {
+			return 'ready';
+		}
+		return 'neutral';
+	}
+
 	onClose(): void {
 		// Clean up Sortable instances
 		this.sortableInstances.forEach((instance) => {
@@ -782,6 +867,13 @@ export class KanbanView extends BasesView {
 				key: 'swimlaneProperty',
 				filter: (prop: string) => !prop.startsWith('file.'),
 				placeholder: 'Optional property',
+			},
+			{
+				displayName: 'Show swimlanes',
+				type: 'toggle',
+				key: 'showSwimlanes',
+				default: true,
+				shouldHide: (config) => !config.get('swimlaneProperty'),
 			},
 		];
 	}

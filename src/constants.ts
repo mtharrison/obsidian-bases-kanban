@@ -11,6 +11,7 @@ export const SORTABLE_GROUP = 'obk-columns';
 /** Data attribute names */
 export const DATA_ATTRIBUTES = {
 	COLUMN_VALUE: 'data-column-value',
+	COLUMN_TONE: 'data-column-tone',
 	LANE_VALUE: 'data-lane-value',
 	ENTRY_PATH: 'data-entry-path',
 	SORTABLE_CONTAINER: 'data-sortable-container',
@@ -22,6 +23,7 @@ export const DATA_ATTRIBUTES = {
 export const CSS_CLASSES = {
 	// Container
 	VIEW_CONTAINER: 'obk-view-container',
+	BOARD_SCROLLER: 'obk-board-scroller',
 	BOARD: 'obk-board',
 	
 	// Property selector (for future or framework-driven UI)
@@ -51,7 +53,9 @@ export const CSS_CLASSES = {
 	CARD: 'obk-card',
 	CARD_HEADER: 'obk-card-header',
 	CARD_TITLE: 'obk-card-title',
+	CARD_BADGES: 'obk-card-badges',
 	CARD_TAGS: 'obk-card-tags',
+	CARD_SWIMLANE_PILL: 'obk-card-swimlane-pill',
 	CARD_TAG_PILL: 'obk-card-tag-pill',
 	CARD_META: 'obk-card-meta',
 	CARD_META_ROW: 'obk-card-meta-row',
@@ -59,6 +63,10 @@ export const CSS_CLASSES = {
 	CARD_META_VALUE: 'obk-card-meta-value',
 	CARD_PREVIEW: 'obk-card-preview',
 	CARD_TASKS: 'obk-card-tasks',
+	CARD_TASK_SUMMARY: 'obk-card-task-summary',
+	CARD_TASK_COUNTS: 'obk-card-task-counts',
+	CARD_TASK_TOGGLE: 'obk-card-task-toggle',
+	CARD_TASK_LIST: 'obk-card-task-list',
 	TASK_ITEM: 'obk-task-item',
 	TASK_ITEM_COMPLETED: 'obk-task-item-completed',
 	TASK_CHECKBOX: 'obk-task-checkbox',
