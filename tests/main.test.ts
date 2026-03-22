@@ -100,8 +100,9 @@ describe('View Options', () => {
 		const groupOption = options[0] as { displayName: string; type: string; key: string; placeholder: string };
 		const swimlaneOption = options[1] as { displayName: string; key: string };
 		const swimlaneToggleOption = options[2] as { displayName: string; type: string; key: string; default: boolean };
+		const columnColorsOption = options[3] as { displayName: string; type: string; key: string };
 		
-		assert.strictEqual(options.length, 3, 'Should return three options');
+		assert.strictEqual(options.length, 4, 'Should return four options');
 		assert.strictEqual(groupOption.displayName, 'Group by', 'Display name should match');
 		assert.strictEqual(groupOption.type, 'property', 'Type should be "property"');
 		assert.strictEqual(groupOption.key, 'groupByProperty', 'Key should be "groupByProperty"');
@@ -112,6 +113,9 @@ describe('View Options', () => {
 		assert.strictEqual(swimlaneToggleOption.type, 'toggle', 'Swimlane visibility option should be a toggle');
 		assert.strictEqual(swimlaneToggleOption.key, 'showSwimlanes', 'Swimlane visibility toggle key should match');
 		assert.strictEqual(swimlaneToggleOption.default, true, 'Swimlane visibility toggle should default to true');
+		assert.strictEqual(columnColorsOption.displayName, 'Column colors', 'Fourth option should be the column colors mapping');
+		assert.strictEqual(columnColorsOption.type, 'multitext', 'Column colors should use a multitext option');
+		assert.strictEqual(columnColorsOption.key, 'columnColors', 'Column colors option key should match');
 	});
 
 	test('Property filter excludes file.* properties', () => {

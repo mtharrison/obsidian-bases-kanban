@@ -367,6 +367,50 @@ describe('Data Rendering - Column Rendering', () => {
 			'To Do should map to ready tone'
 		);
 	});
+
+	test('Configured column colors override the default header styling', () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		controller.config.set('columnColors', ['To Do: #ff8844']);
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const customColumn = view.containerEl.querySelector('[data-column-value="To Do"]') as HTMLElement | null;
+		assert.ok(customColumn, 'Configured column should render');
+		assert.match(
+			customColumn?.style.getPropertyValue('--obk-column-header-bg') ?? '',
+			/#ff8844/i,
+			'Configured color should be applied to the column header background variable'
+		);
+		assert.match(
+			customColumn?.style.getPropertyValue('--obk-column-count-bg') ?? '',
+			/#ff8844/i,
+			'Configured color should be applied to the column count background variable'
+		);
+	});
+
+	test('Configured column colors keep empty columns visible', () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		controller.config.set('columnColors', ['Backlog: #4d8dff']);
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const backlogColumn = view.containerEl.querySelector('[data-column-value="Backlog"]') as HTMLElement | null;
+		assert.ok(backlogColumn, 'A column declared through column colors should render even when it has no entries');
+		assert.ok(
+			backlogColumn?.classList.contains('obk-column-empty'),
+			'Configured empty columns should still use the empty-column styling'
+		);
+	});
 });
 
 describe('Data Rendering - Card Rendering', () => {

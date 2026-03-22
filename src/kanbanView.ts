@@ -71,14 +71,6 @@ export class KanbanView extends BasesView {
 		try {
 			// Get all entries from the data
 			const entries = this.data?.data || [];
-			if (!entries || entries.length === 0) {
-				this.containerEl.createDiv({
-					text: EMPTY_STATE_MESSAGES.NO_ENTRIES,
-					cls: CSS_CLASSES.EMPTY_STATE
-				});
-				return;
-			}
-
 			// Get available properties from entries
 			const availablePropertyIds = this.allProperties || [];
 			
@@ -94,6 +86,14 @@ export class KanbanView extends BasesView {
 			this.swimlanePropertyId = this.resolveSwimlaneProperty(availablePropertyIds);
 
 			const columnValues = this.getOrderedColumnValues(this.getPropertyValues(entries, this.groupByPropertyId));
+			if (entries.length === 0 && columnValues.length === 0) {
+				this.containerEl.createDiv({
+					text: EMPTY_STATE_MESSAGES.NO_ENTRIES,
+					cls: CSS_CLASSES.EMPTY_STATE
+				});
+				return;
+			}
+
 			if (this.swimlanePropertyId && this.shouldShowSwimlanes()) {
 				this.renderSwimlanes(entries, columnValues, this.swimlanePropertyId);
 			} else {
@@ -141,6 +141,10 @@ export class KanbanView extends BasesView {
 	}
 
 	private resolveGroupByProperty(availablePropertyIds: BasesPropertyId[]): BasesPropertyId | null {
+		if (this.groupByPropertyId && availablePropertyIds.length === 0) {
+			return this.groupByPropertyId;
+		}
+
 		if (this.groupByPropertyId && availablePropertyIds.includes(this.groupByPropertyId)) {
 			return this.groupByPropertyId;
 		}
@@ -196,6 +200,7 @@ export class KanbanView extends BasesView {
 		columnEl.className = CSS_CLASSES.COLUMN;
 		columnEl.setAttribute(DATA_ATTRIBUTES.COLUMN_VALUE, value);
 		columnEl.setAttribute(DATA_ATTRIBUTES.COLUMN_TONE, this.getColumnTone(value));
+		this.applyCustomColumnColor(columnEl, value);
 		if (entries.length === 0) {
 			columnEl.classList.add(`${CSS_CLASSES.COLUMN}-empty`);
 		}
@@ -756,14 +761,19 @@ export class KanbanView extends BasesView {
 	}
 
 	private getOrderedColumnValues(values: string[]): string[] {
-		if (!this.groupByPropertyId) return values.sort();
+		const mergedValues = Array.from(new Set([...values, ...this.getConfiguredColumnValuesList()]));
+		if (!this.groupByPropertyId) return mergedValues.sort();
 		
 		const savedOrder = this.getColumnOrderFromStorage(this.groupByPropertyId);
-		if (!savedOrder) return values.sort();
+		if (!savedOrder) return mergedValues.sort();
 		
 		// Saved order is already normalized strings, use directly
-		const newValues = values.filter(v => !savedOrder.includes(v));
-		return [...savedOrder.filter(v => values.includes(v)), ...newValues];
+		const newValues = mergedValues.filter(v => !savedOrder.includes(v));
+		return [...savedOrder.filter(v => mergedValues.includes(v)), ...newValues];
+	}
+
+	private getConfiguredColumnValuesList(): string[] {
+		return Object.keys(this.getConfiguredColumnColors());
 	}
 
 	private getOrderedLaneValues(values: string[], propertyId: BasesPropertyId): string[] {
@@ -933,6 +943,71 @@ export class KanbanView extends BasesView {
 		return 'neutral';
 	}
 
+	private applyCustomColumnColor(columnEl: HTMLElement, columnValue: string): void {
+		const customColor = this.getConfiguredColumnColors()[columnValue];
+		if (!customColor) {
+			return;
+		}
+
+		columnEl.style.setProperty(
+			'--obk-column-header-bg',
+			`linear-gradient(135deg, color-mix(in srgb, ${customColor} 34%, white 6%), color-mix(in srgb, ${customColor} 18%, var(--obk-panel-bg) 82%))`
+		);
+		columnEl.style.setProperty(
+			'--obk-column-header-border',
+			`color-mix(in srgb, ${customColor} 42%, var(--obk-panel-border) 58%)`
+		);
+		columnEl.style.setProperty(
+			'--obk-column-count-bg',
+			`color-mix(in srgb, ${customColor} 24%, var(--background-primary) 76%)`
+		);
+		columnEl.style.setProperty(
+			'--obk-column-count-border',
+			`color-mix(in srgb, ${customColor} 38%, var(--background-modifier-border) 62%)`
+		);
+	}
+
+	private getConfiguredColumnColors(): Record<string, string> {
+		const configValue = this.config?.get?.('columnColors');
+		if (!Array.isArray(configValue)) {
+			return {};
+		}
+
+		const mappings: Record<string, string> = {};
+		for (const item of configValue) {
+			if (typeof item !== 'string') {
+				continue;
+			}
+
+			const match = item.match(/^(.+?)\s*[:=]\s*(.+)$/);
+			if (!match) {
+				continue;
+			}
+
+			const [, rawColumnValue, rawColor] = match;
+			const columnValue = rawColumnValue.trim();
+			const colorValue = rawColor.trim();
+			if (!columnValue || !this.isValidCssColor(colorValue)) {
+				continue;
+			}
+
+			mappings[columnValue] = colorValue;
+		}
+
+		return mappings;
+	}
+
+	private isValidCssColor(value: string): boolean {
+		if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function') {
+			return CSS.supports('color', value);
+		}
+
+		return /^#([\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(value)
+			|| /^(rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\(/i.test(value)
+			|| /^var\(--[\w-]+\)$/i.test(value)
+			|| /^[a-z]+$/i.test(value);
+	}
+
 	onClose(): void {
 		// Clean up Sortable instances
 		this.sortableInstances.forEach((instance) => {
@@ -976,6 +1051,11 @@ export class KanbanView extends BasesView {
 				key: 'showSwimlanes',
 				default: true,
 				shouldHide: (config) => !config.get('swimlaneProperty'),
+			},
+			{
+				displayName: 'Column colors',
+				type: 'multitext',
+				key: 'columnColors',
 			},
 		];
 	}
