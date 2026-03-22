@@ -169,13 +169,12 @@ npm run typecheck
 
 1. Use Semantic Release to prepare the release commit and tag.
 2. Ensure the release commit updates `manifest.json`, `package.json`, and `versions.json` to the same plugin version.
-3. When Semantic Release pushes the version tag, GitHub Actions will:
+3. When a release commit is merged into `master` or pushed directly to `master`, GitHub Actions will:
    - Run linting, type checks, tests, and the production build
    - Verify that `manifest.json` and `package.json` versions match
    - Verify that the version exists in `versions.json`
-   - Rebuild the plugin from the tagged commit
-   - Verify the pushed tag matches `dist/manifest.json`
-   - Create or update the GitHub release for that tag and upload `main.js`, `manifest.json`, and `styles.css` as assets
+   - Build the plugin from the `master` commit
+   - Create or update the GitHub release for the version from `manifest.json` and upload `main.js`, `manifest.json`, and `styles.css` as assets
 4. Submit or update the plugin in the Obsidian community catalog as needed:
    - Follow the [Obsidian plugin submission guidelines](https://docs.obsidian.md/Plugins/Releasing/Submit+your+plugin)
    - Update the entry in the [obsidian-releases](https://github.com/obsidianmd/obsidian-releases) repository when required

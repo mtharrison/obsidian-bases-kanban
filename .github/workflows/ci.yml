@@ -4,9 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
-    tags:
-      - '*'
+      - master
 
 jobs:
   test:
@@ -99,7 +97,7 @@ jobs:
 
   release:
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,18 +114,12 @@ jobs:
           name: plugin-artifacts
           path: dist
       
-      - name: Verify tag matches manifest version
+      - name: Resolve release version
         id: version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME}"
           MANIFEST_VERSION=$(node -p "require('./dist/manifest.json').version")
-          echo "Tag version: $TAG_VERSION"
           echo "Manifest version: $MANIFEST_VERSION"
-          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "Tag version does not match dist/manifest.json version"
-            exit 1
-          fi
-          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$MANIFEST_VERSION" >> $GITHUB_OUTPUT
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
