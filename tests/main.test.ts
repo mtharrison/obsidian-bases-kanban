@@ -97,12 +97,16 @@ describe('Plugin Registration', () => {
 describe('View Options', () => {
 	test('getViewOptions returns correct structure', () => {
 		const options = KanbanView.getViewOptions();
+		const groupOption = options[0] as { displayName: string; type: string; key: string; placeholder: string };
+		const swimlaneOption = options[1] as { displayName: string; key: string };
 		
-		assert.strictEqual(options.length, 1, 'Should return one option');
-		assert.strictEqual(options[0].displayName, 'Group by', 'Display name should match');
-		assert.strictEqual(options[0].type, 'property', 'Type should be "property"');
-		assert.strictEqual(options[0].key, 'groupByProperty', 'Key should be "groupByProperty"');
-		assert.strictEqual(options[0].placeholder, 'Select property', 'Placeholder should match');
+		assert.strictEqual(options.length, 2, 'Should return two options');
+		assert.strictEqual(groupOption.displayName, 'Group by', 'Display name should match');
+		assert.strictEqual(groupOption.type, 'property', 'Type should be "property"');
+		assert.strictEqual(groupOption.key, 'groupByProperty', 'Key should be "groupByProperty"');
+		assert.strictEqual(groupOption.placeholder, 'Select property', 'Placeholder should match');
+		assert.strictEqual(swimlaneOption.displayName, 'Swimlanes', 'Second option should be swimlanes');
+		assert.strictEqual(swimlaneOption.key, 'swimlaneProperty', 'Second option key should match');
 	});
 
 	test('Property filter excludes file.* properties', () => {
@@ -123,4 +127,3 @@ describe('View Options', () => {
 		assert.strictEqual(filter('status'), true, 'status should be included');
 	});
 });
-

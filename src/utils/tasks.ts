@@ -3,6 +3,7 @@ export interface NoteTask {
 	text: string;
 	completed: boolean;
 	indent: string;
+	depth: number;
 	bullet: string;
 	originalLine: string;
 }
@@ -10,7 +11,7 @@ export interface NoteTask {
 const TASK_LINE_REGEX = /^(\s*)([-*+]) \[( |x|X)\] (.*)$/;
 
 export function parseMarkdownTasks(content: string): NoteTask[] {
-	return content
+	const tasks = content
 		.split(/\r?\n/)
 		.map((line, index) => {
 			const match = line.match(TASK_LINE_REGEX);
@@ -21,13 +22,30 @@ export function parseMarkdownTasks(content: string): NoteTask[] {
 			return {
 				line: index,
 				indent: match[1],
+				depth: 0,
 				bullet: match[2],
 				completed: match[3].toLowerCase() === 'x',
 				text: match[4],
 				originalLine: line,
 			} satisfies NoteTask;
-		})
+			})
 		.filter((task): task is NoteTask => task !== null);
+
+	const indentLevels: number[] = [];
+	tasks.forEach((task) => {
+		const indentWidth = getIndentWidth(task.indent);
+		while (indentLevels.length > 0 && indentLevels[indentLevels.length - 1] > indentWidth) {
+			indentLevels.pop();
+		}
+
+		if (indentWidth > 0 && (indentLevels.length === 0 || indentLevels[indentLevels.length - 1] < indentWidth)) {
+			indentLevels.push(indentWidth);
+		}
+
+		task.depth = indentWidth === 0 ? 0 : indentLevels.findIndex((level) => level === indentWidth) + 1;
+	});
+
+	return tasks;
 }
 
 export function updateTaskCompletion(
@@ -65,4 +83,12 @@ function findTaskLine(lines: string[], task: NoteTask): number {
 
 function buildTaskLine(task: NoteTask, completed: boolean): string {
 	return `${task.indent}${task.bullet} [${completed ? 'x' : ' '}] ${task.text}`;
+}
+
+function getIndentWidth(indent: string): number {
+	let width = 0;
+	for (const char of indent) {
+		width += char === '\t' ? 4 : 1;
+	}
+	return width;
 }

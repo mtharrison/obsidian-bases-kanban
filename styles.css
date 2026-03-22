@@ -1,10 +1,29 @@
 /* Kanban View Container */
 .obk-view-container {
+	--obk-pastel-lavender: rgba(214, 205, 255, 0.18);
+	--obk-pastel-sky: rgba(192, 228, 255, 0.18);
+	--obk-pastel-mint: rgba(201, 238, 221, 0.2);
+	--obk-pastel-peach: rgba(255, 221, 199, 0.18);
+	--obk-pastel-butter: rgba(255, 239, 184, 0.2);
+	--obk-panel-bg: color-mix(in srgb, var(--background-secondary) 94%, white 6%);
+	--obk-panel-border: color-mix(in srgb, var(--background-modifier-border) 82%, var(--obk-pastel-lavender) 18%);
+	--obk-panel-header: linear-gradient(135deg, var(--obk-pastel-lavender), var(--obk-pastel-sky) 55%, var(--obk-pastel-mint));
+	--obk-card-bg: color-mix(in srgb, var(--background-primary) 96%, white 4%);
+	--obk-card-border: color-mix(in srgb, var(--background-modifier-border) 84%, var(--obk-pastel-sky) 16%);
+	--obk-tag-bg: linear-gradient(135deg, var(--obk-pastel-peach), var(--obk-pastel-butter));
+	--obk-tag-text: var(--text-normal);
+	--obk-accent-soft: color-mix(in srgb, var(--interactive-accent) 68%, var(--obk-pastel-sky) 32%);
 	height: 100%;
 	display: flex;
 	flex-direction: column;
 	padding: 10px;
 	overflow: hidden;
+	border-radius: 14px;
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--background-primary) 98%, white 2%),
+		color-mix(in srgb, var(--background-secondary) 98%, var(--obk-pastel-lavender) 2%)
+	);
 }
 
 /* Property Selector */
@@ -60,6 +79,65 @@
 	padding-bottom: 10px;
 }
 
+.obk-swimlanes {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding-right: 4px;
+}
+
+.obk-lane {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-height: 0;
+}
+
+.obk-lane-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 4px;
+}
+
+.obk-lane-drag-handle {
+	cursor: grab;
+	padding: 4px;
+	opacity: 0.5;
+	user-select: none;
+	font-size: 14px;
+	line-height: 1;
+	color: var(--text-muted);
+	display: flex;
+	align-items: center;
+}
+
+.obk-lane-drag-handle:hover {
+	opacity: 1;
+	color: var(--text-normal);
+}
+
+.obk-lane-title {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+}
+
+.obk-lane-count {
+	font-size: 11px;
+	color: var(--text-muted);
+	background: color-mix(in srgb, var(--background-primary) 84%, white 16%);
+	padding: 2px 8px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, white 20%);
+}
+
 .obk-board::-webkit-scrollbar {
 	height: 8px;
 }
@@ -84,18 +162,19 @@
 	min-width: 280px;
 	display: flex;
 	flex-direction: column;
-	background: var(--background-secondary);
-	border-radius: 8px;
-	border: 1px solid var(--background-modifier-border);
+	background: var(--obk-panel-bg);
+	border-radius: 16px;
+	border: 1px solid var(--obk-panel-border);
 	min-height: 200px;
 	max-height: 100%;
 	overflow: hidden;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 
 .obk-column-header {
 	padding: 12px 16px;
-	background: var(--background-primary-alt);
-	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--obk-panel-header);
+	border-bottom: 1px solid var(--obk-panel-border);
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -133,10 +212,11 @@
 
 .obk-column-count {
 	font-size: 12px;
-	color: var(--text-muted);
-	background: var(--background-modifier-border);
+	color: var(--text-normal);
+	background: color-mix(in srgb, var(--background-primary) 84%, white 16%);
 	padding: 2px 8px;
 	border-radius: 12px;
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, white 20%);
 }
 
 .obk-column-body {
@@ -168,28 +248,85 @@
 
 /* Kanban Card */
 .obk-card {
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 6px;
+	background: var(--obk-card-bg);
+	border: 1px solid var(--obk-card-border);
+	border-radius: 14px;
 	padding: 12px;
 	cursor: pointer;
 	transition: all 0.2s ease;
-	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .obk-card:hover {
-	border-color: var(--interactive-accent);
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	border-color: var(--obk-accent-soft);
+	box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
 	transform: translateY(-1px);
 }
 
+.obk-card-header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	column-gap: 8px;
+	row-gap: 6px;
+}
+
 .obk-card-title {
+	grid-column: 1;
 	font-weight: 500;
 	font-size: 14px;
 	color: var(--text-normal);
-	margin-bottom: 6px;
+	margin-bottom: 0;
 	line-height: 1.4;
 	word-wrap: break-word;
+}
+
+.obk-card-tags {
+	grid-column: 2;
+	justify-self: end;
+	max-width: 180px;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 4px;
+}
+
+.obk-card-tag-pill {
+	padding: 3px 8px;
+	border-radius: 999px;
+	background: var(--obk-tag-bg);
+	color: var(--obk-tag-text);
+	font-size: 11px;
+	line-height: 1.3;
+	white-space: nowrap;
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 75%, white 25%);
+	box-shadow: none;
+}
+
+.obk-card-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 8px;
+}
+
+.obk-card-meta-row {
+	display: flex;
+	gap: 6px;
+	font-size: 12px;
+	line-height: 1.35;
+	color: var(--text-muted);
+}
+
+.obk-card-meta-label {
+	flex-shrink: 0;
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.obk-card-meta-value {
+	min-width: 0;
+	word-break: break-word;
 }
 
 .obk-card-tasks {
@@ -198,13 +335,14 @@
 	gap: 8px;
 	margin-top: 10px;
 	padding-top: 10px;
-	border-top: 1px solid var(--background-modifier-border);
+	border-top: 1px solid color-mix(in srgb, var(--obk-card-border) 75%, white 25%);
 }
 
 .obk-task-item {
 	display: flex;
 	align-items: flex-start;
 	gap: 8px;
+	margin-left: calc(var(--obk-task-depth, 0) * 14px);
 	font-size: 12px;
 	line-height: 1.4;
 	color: var(--text-normal);
@@ -220,6 +358,7 @@
 	margin: 1px 0 0;
 	cursor: pointer;
 	flex-shrink: 0;
+	accent-color: color-mix(in srgb, var(--interactive-accent) 55%, #8bc6ec 45%);
 }
 
 .obk-task-text {
@@ -246,8 +385,8 @@
 
 .obk-card-ghost {
 	opacity: 0.3;
-	background: var(--interactive-accent);
-	border-color: var(--interactive-accent);
+	background: color-mix(in srgb, var(--obk-accent-soft) 70%, white 30%);
+	border-color: var(--obk-accent-soft);
 }
 
 .obk-card-chosen {
@@ -263,14 +402,24 @@
 
 .obk-column-ghost {
 	opacity: 0.3;
-	background: var(--background-modifier-border);
+	background: color-mix(in srgb, var(--obk-pastel-lavender) 70%, white 30%);
+}
+
+.obk-lane-dragging {
+	opacity: 0.75;
+}
+
+.obk-lane-ghost {
+	opacity: 0.45;
+	background: color-mix(in srgb, var(--obk-pastel-sky) 40%, transparent 60%);
+	border-radius: 12px;
 }
 
 /* Sortable placeholder */
 .obk-sortable-ghost {
 	opacity: 0.4;
-	background: var(--interactive-accent);
-	border: 2px dashed var(--interactive-accent);
+	background: color-mix(in srgb, var(--obk-pastel-sky) 72%, white 28%);
+	border: 2px dashed var(--obk-accent-soft);
 	border-radius: 6px;
 }
 

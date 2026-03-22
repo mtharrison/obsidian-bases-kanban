@@ -30,7 +30,11 @@ export interface QueryController {
 	};
 	allProperties: BasesPropertyId[];
 	config: {
+		get(key: string): unknown;
 		getAsPropertyId(key: string): BasesPropertyId | null;
+		getOrder(): BasesPropertyId[];
+		getDisplayName(propertyId: BasesPropertyId): string;
+		set(key: string, value: any | null): void;
 	};
 	app?: App;
 }
@@ -55,7 +59,11 @@ export abstract class BasesView {
 	};
 	allProperties?: BasesPropertyId[];
 	config?: {
+		get(key: string): unknown;
 		getAsPropertyId(key: string): BasesPropertyId | null;
+		getOrder(): BasesPropertyId[];
+		getDisplayName(propertyId: BasesPropertyId): string;
+		set(key: string, value: any | null): void;
 	};
 	
 	constructor(controller: QueryController) {

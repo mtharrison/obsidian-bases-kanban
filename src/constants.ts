@@ -11,6 +11,7 @@ export const SORTABLE_GROUP = 'obk-columns';
 /** Data attribute names */
 export const DATA_ATTRIBUTES = {
 	COLUMN_VALUE: 'data-column-value',
+	LANE_VALUE: 'data-lane-value',
 	ENTRY_PATH: 'data-entry-path',
 	SORTABLE_CONTAINER: 'data-sortable-container',
 	COLUMN_POSITION: 'data-column-position',
@@ -29,6 +30,14 @@ export const CSS_CLASSES = {
 	PROPERTY_SELECT: 'obk-property-select',
 	
 	// Column
+	SWIMLANES: 'obk-swimlanes',
+	LANE: 'obk-lane',
+	LANE_HEADER: 'obk-lane-header',
+	LANE_TITLE: 'obk-lane-title',
+	LANE_COUNT: 'obk-lane-count',
+	LANE_DRAG_HANDLE: 'obk-lane-drag-handle',
+	LANE_DRAGGING: 'obk-lane-dragging',
+	LANE_GHOST: 'obk-lane-ghost',
 	COLUMN: 'obk-column',
 	COLUMN_HEADER: 'obk-column-header',
 	COLUMN_TITLE: 'obk-column-title',
@@ -40,7 +49,14 @@ export const CSS_CLASSES = {
 	
 	// Card
 	CARD: 'obk-card',
+	CARD_HEADER: 'obk-card-header',
 	CARD_TITLE: 'obk-card-title',
+	CARD_TAGS: 'obk-card-tags',
+	CARD_TAG_PILL: 'obk-card-tag-pill',
+	CARD_META: 'obk-card-meta',
+	CARD_META_ROW: 'obk-card-meta-row',
+	CARD_META_LABEL: 'obk-card-meta-label',
+	CARD_META_VALUE: 'obk-card-meta-value',
 	CARD_PREVIEW: 'obk-card-preview',
 	CARD_TASKS: 'obk-card-tasks',
 	TASK_ITEM: 'obk-task-item',

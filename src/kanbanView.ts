@@ -12,38 +12,11 @@ import {
 import { ensureGroupExists, normalizePropertyValue } from './utils/grouping.ts';
 import { parseMarkdownTasks, updateTaskCompletion, type NoteTask } from './utils/tasks.ts';
 
-interface KanbanPlugin {
-	getColumnOrder(propertyId: BasesPropertyId): string[] | null;
-	saveColumnOrder(propertyId: BasesPropertyId, order: string[]): Promise<void>;
-}
-
-// Extend Obsidian's App type to include plugins registry
-// Obsidian's App structure: app.plugins is PluginManager, app.plugins.plugins is the registry
-// Plugins are accessed via app.plugins.plugins[pluginId] where pluginId matches manifest.json id
-// Reference: Obsidian API type definitions - https://github.com/obsidianmd/obsidian-api/blob/master/obsidian.d.ts
-// This is an internal but commonly used API pattern in Obsidian plugins
-interface AppWithPluginRegistry extends App {
-	plugins?: {
-		plugins?: {
-			[key: string]: unknown;
-		};
-	};
-}
-
-interface AppWithTaskVault extends App {
-	vault?: {
-		cachedRead(file: BasesEntry['file']): Promise<string>;
-		modify(file: BasesEntry['file'], content: string): Promise<void>;
-	};
-}
-
-// Type guard to check if app has plugin registry
-function hasPluginRegistry(app: App | undefined): app is AppWithPluginRegistry {
-	return app !== undefined && 'plugins' in app;
-}
-
-function hasTaskVault(app: App | undefined): app is AppWithTaskVault {
-	return app !== undefined && 'vault' in app;
+function hasTaskVault(app: App | undefined): app is App {
+	return app !== undefined
+		&& 'vault' in app
+		&& typeof app.vault?.cachedRead === 'function'
+		&& typeof app.vault?.modify === 'function';
 }
 
 export class KanbanView extends BasesView {
@@ -52,8 +25,11 @@ export class KanbanView extends BasesView {
 	scrollEl: HTMLElement;
 	containerEl: HTMLElement;
 	private groupByPropertyId: BasesPropertyId | null = null;
+	private swimlanePropertyId: BasesPropertyId | null = null;
 	private sortableInstances: Sortable[] = [];
 	private columnSortable: Sortable | null = null;
+	private columnSortables: Sortable[] = [];
+	private laneSortable: Sortable | null = null;
 
 	constructor(controller: QueryController, scrollEl: HTMLElement) {
 		super(controller);
@@ -73,6 +49,7 @@ export class KanbanView extends BasesView {
 	private loadConfig(): void {
 		// Load group by property from config
 		this.groupByPropertyId = this.config.getAsPropertyId('groupByProperty');
+		this.swimlanePropertyId = this.config.getAsPropertyId('swimlaneProperty');
 	}
 
 	private render(): void {
@@ -93,37 +70,34 @@ export class KanbanView extends BasesView {
 			// Get available properties from entries
 			const availablePropertyIds = this.allProperties || [];
 			
-			// Validate group by property
-			if (!this.groupByPropertyId || !availablePropertyIds.includes(this.groupByPropertyId)) {
-				if (availablePropertyIds.length > 0) {
-					this.groupByPropertyId = availablePropertyIds[0];
-				} else {
-					this.containerEl.createDiv({
-						text: EMPTY_STATE_MESSAGES.NO_PROPERTIES,
-						cls: CSS_CLASSES.EMPTY_STATE
-					});
-					return;
-				}
+			this.groupByPropertyId = this.resolveGroupByProperty(availablePropertyIds);
+			if (!this.groupByPropertyId) {
+				this.containerEl.createDiv({
+					text: EMPTY_STATE_MESSAGES.NO_PROPERTIES,
+					cls: CSS_CLASSES.EMPTY_STATE
+				});
+				return;
 			}
 
-			// Group entries by group by property value
-			const groupedEntries = this.groupEntriesByProperty(entries, this.groupByPropertyId);
+			this.swimlanePropertyId = this.resolveSwimlaneProperty(availablePropertyIds);
 
-			// Create kanban board
-			const boardEl = this.containerEl.createDiv({ cls: CSS_CLASSES.BOARD });
+			const columnValues = this.getOrderedColumnValues(this.getPropertyValues(entries, this.groupByPropertyId));
+			if (this.swimlanePropertyId) {
+				this.renderSwimlanes(entries, columnValues, this.swimlanePropertyId);
+			} else {
+				const groupedEntries = this.groupEntriesByProperty(entries, this.groupByPropertyId);
+				const boardEl = this.containerEl.createDiv({ cls: CSS_CLASSES.BOARD });
 
-			// Create columns for each unique property value
-			const propertyValues = Array.from(groupedEntries.keys());
-			const orderedValues = this.getOrderedColumnValues(propertyValues);
-			
-			orderedValues.forEach((value) => {
-				const columnEl = this.createColumn(value, groupedEntries.get(value) || []);
-				boardEl.appendChild(columnEl);
-			});
+				columnValues.forEach((value) => {
+					const columnEl = this.createColumn(value, groupedEntries.get(value) || []);
+					boardEl.appendChild(columnEl);
+				});
+			}
 
 			// Initialize drag and drop
 			this.initializeSortable();
 			this.initializeColumnSortable();
+			this.initializeLaneSortable();
 		} catch (error) {
 			console.error('KanbanView error:', error);
 		}
@@ -147,6 +121,60 @@ export class KanbanView extends BasesView {
 		});
 
 		return grouped;
+	}
+
+	private getPropertyValues(entries: BasesEntry[], propertyId: BasesPropertyId): string[] {
+		return Array.from(this.groupEntriesByProperty(entries, propertyId).keys());
+	}
+
+	private resolveGroupByProperty(availablePropertyIds: BasesPropertyId[]): BasesPropertyId | null {
+		if (this.groupByPropertyId && availablePropertyIds.includes(this.groupByPropertyId)) {
+			return this.groupByPropertyId;
+		}
+
+		return availablePropertyIds[0] || null;
+	}
+
+	private resolveSwimlaneProperty(availablePropertyIds: BasesPropertyId[]): BasesPropertyId | null {
+		if (!this.swimlanePropertyId || !availablePropertyIds.includes(this.swimlanePropertyId)) {
+			return null;
+		}
+
+		if (this.swimlanePropertyId === this.groupByPropertyId) {
+			return null;
+		}
+
+		return this.swimlanePropertyId;
+	}
+
+	private renderSwimlanes(
+		entries: BasesEntry[],
+		columnValues: string[],
+		swimlanePropertyId: BasesPropertyId
+	): void {
+		const swimlanesEl = this.containerEl.createDiv({ cls: CSS_CLASSES.SWIMLANES });
+		const groupedByLane = this.groupEntriesByProperty(entries, swimlanePropertyId);
+		const laneValues = this.getOrderedLaneValues(Array.from(groupedByLane.keys()), swimlanePropertyId);
+
+		laneValues.forEach((laneValue) => {
+			const laneEntries = groupedByLane.get(laneValue) || [];
+			const laneEl = swimlanesEl.createDiv({ cls: CSS_CLASSES.LANE });
+			laneEl.setAttribute(DATA_ATTRIBUTES.LANE_VALUE, laneValue);
+
+			const laneHeaderEl = laneEl.createDiv({ cls: CSS_CLASSES.LANE_HEADER });
+			const laneDragHandle = laneHeaderEl.createDiv({ cls: CSS_CLASSES.LANE_DRAG_HANDLE });
+			laneDragHandle.textContent = '⋮⋮';
+			laneHeaderEl.createSpan({ text: laneValue, cls: CSS_CLASSES.LANE_TITLE });
+			laneHeaderEl.createSpan({ text: `(${laneEntries.length})`, cls: CSS_CLASSES.LANE_COUNT });
+
+			const boardEl = laneEl.createDiv({ cls: CSS_CLASSES.BOARD });
+			const groupedByColumn = this.groupEntriesByProperty(laneEntries, this.groupByPropertyId as BasesPropertyId);
+
+			columnValues.forEach((columnValue) => {
+				const columnEl = this.createColumn(columnValue, groupedByColumn.get(columnValue) || []);
+				boardEl.appendChild(columnEl);
+			});
+		});
 	}
 
 	private createColumn(value: string, entries: BasesEntry[]): HTMLElement {
@@ -183,9 +211,39 @@ export class KanbanView extends BasesView {
 		const filePath = entry.file.path;
 		cardEl.setAttribute(DATA_ATTRIBUTES.ENTRY_PATH, filePath);
 
+		const headerEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_HEADER });
+
 		// Card title - use file basename
-		const titleEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE });
+		const titleEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_TITLE });
 		titleEl.textContent = entry.file.basename;
+
+		const tagValues = this.getCardTagValues(entry);
+		if (tagValues.length > 0) {
+			const tagsEl = headerEl.createDiv({ cls: CSS_CLASSES.CARD_TAGS });
+			tagValues.forEach((tagValue) => {
+				tagsEl.createSpan({ text: tagValue, cls: CSS_CLASSES.CARD_TAG_PILL });
+			});
+		}
+
+		const metaProperties = this.getVisibleCardProperties();
+		if (metaProperties.length > 0) {
+			const metaEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_META });
+			metaProperties.forEach((propertyId) => {
+				const value = this.formatCardPropertyValue(this.getEntryPropertyValue(entry, propertyId));
+				if (!value) {
+					return;
+				}
+
+				const rowEl = metaEl.createDiv({ cls: CSS_CLASSES.CARD_META_ROW });
+				const label = this.config?.getDisplayName?.(propertyId) ?? parsePropertyId(propertyId).name;
+				rowEl.createSpan({ text: `${label}:`, cls: CSS_CLASSES.CARD_META_LABEL });
+				rowEl.createSpan({ text: value, cls: CSS_CLASSES.CARD_META_VALUE });
+			});
+
+			if (!metaEl.hasChildNodes()) {
+				metaEl.remove();
+			}
+		}
 
 		const tasksEl = cardEl.createDiv({ cls: CSS_CLASSES.CARD_TASKS });
 		void this.loadCardTasks(entry, tasksEl);
@@ -199,6 +257,102 @@ export class KanbanView extends BasesView {
 		cardEl.addEventListener('click', clickHandler);
 
 		return cardEl;
+	}
+
+	private getCardTagValues(entry: BasesEntry): string[] {
+		const tagPropertyId = this.findTagPropertyId();
+		if (!tagPropertyId) {
+			return [];
+		}
+
+		try {
+			const rawValue = this.getEntryPropertyValue(entry, tagPropertyId);
+			return this.normalizeTagValues(rawValue);
+		} catch (error) {
+			console.warn('Error reading tag property for entry:', entry.file.path, error);
+			return [];
+		}
+	}
+
+	private getEntryPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
+		const propertyReader = 'getProperty' in entry && typeof entry.getProperty === 'function'
+			? entry.getProperty.bind(entry)
+			: null;
+		const valueReader = 'getValue' in entry && typeof entry.getValue === 'function'
+			? entry.getValue.bind(entry)
+			: null;
+
+		return propertyReader?.(propertyId) ?? valueReader?.(propertyId) ?? null;
+	}
+
+	private findTagPropertyId(): BasesPropertyId | null {
+		const availableProperties = this.allProperties || [];
+		const preferredTagProperties = ['note.tags', 'tags', 'file.tags'] as const;
+
+		for (const propertyId of preferredTagProperties) {
+			if (availableProperties.includes(propertyId as BasesPropertyId)) {
+				return propertyId as BasesPropertyId;
+			}
+		}
+
+		return availableProperties.find((propertyId) => /(^|\.)(tags?)$/i.test(String(propertyId))) || null;
+	}
+
+	private normalizeTagValues(value: unknown): string[] {
+		if (value === null || value === undefined) {
+			return [];
+		}
+
+		if (Array.isArray(value)) {
+			return value.flatMap((item) => this.normalizeTagValues(item));
+		}
+
+		if (typeof value === 'object' && 'toString' in (value as Record<string, unknown>)) {
+			return this.splitTagString(String(value));
+		}
+
+		return this.splitTagString(String(value));
+	}
+
+	private splitTagString(value: string): string[] {
+		const normalized = value.trim();
+		if (!normalized || /^(null|undefined)$/i.test(normalized)) {
+			return [];
+		}
+
+		return normalized
+			.split(',')
+			.map((tag) => tag.trim())
+			.filter((tag) => tag.length > 0 && !/^(null|undefined)$/i.test(tag));
+	}
+
+	private getVisibleCardProperties(): BasesPropertyId[] {
+		const orderedProperties = this.config?.getOrder?.() || [];
+		return orderedProperties.filter((propertyId) => {
+			return propertyId !== this.groupByPropertyId
+				&& propertyId !== this.swimlanePropertyId
+				&& propertyId !== this.findTagPropertyId();
+		});
+	}
+
+	private formatCardPropertyValue(value: unknown): string | null {
+		if (value === null || value === undefined) {
+			return null;
+		}
+
+		if (Array.isArray(value)) {
+			const values = value
+				.map((item) => this.formatCardPropertyValue(item))
+				.filter((item): item is string => Boolean(item));
+			return values.length > 0 ? values.join(', ') : null;
+		}
+
+		const normalized = String(value).trim();
+		if (!normalized || /^(null|undefined)$/i.test(normalized)) {
+			return null;
+		}
+
+		return normalized;
 	}
 
 	private async loadCardTasks(entry: BasesEntry, tasksEl: HTMLElement): Promise<void> {
@@ -233,6 +387,7 @@ export class KanbanView extends BasesView {
 		const taskEl = document.createElement('label');
 		taskEl.className = CSS_CLASSES.TASK_ITEM;
 		taskEl.setAttribute(DATA_ATTRIBUTES.TASK_LINE, String(task.line));
+		taskEl.style.setProperty('--obk-task-depth', String(task.depth));
 		taskEl.addEventListener('click', (event) => event.stopPropagation());
 		taskEl.addEventListener('mousedown', (event) => event.stopPropagation());
 
@@ -360,14 +515,23 @@ export class KanbanView extends BasesView {
 			? oldColumnEl.getAttribute(DATA_ATTRIBUTES.COLUMN_VALUE)
 			: null;
 		const newColumnValue = newColumnEl.getAttribute(DATA_ATTRIBUTES.COLUMN_VALUE);
+		const laneSelector = `.${CSS_CLASSES.LANE}`;
+		const oldLaneEl = evt.from.closest(laneSelector);
+		const newLaneEl = evt.to.closest(laneSelector);
+		const oldLaneValue = oldLaneEl instanceof HTMLElement
+			? oldLaneEl.getAttribute(DATA_ATTRIBUTES.LANE_VALUE)
+			: null;
+		const newLaneValue = newLaneEl instanceof HTMLElement
+			? newLaneEl.getAttribute(DATA_ATTRIBUTES.LANE_VALUE)
+			: null;
 		
 		if (!newColumnValue) {
 			console.warn('No column value found');
 			return;
 		}
 
-		// Skip if dropped in the same column
-		if (oldColumnValue === newColumnValue) {
+		// Skip if dropped in the same column and lane
+		if (oldColumnValue === newColumnValue && oldLaneValue === newLaneValue) {
 			return;
 		}
 
@@ -400,18 +564,13 @@ export class KanbanView extends BasesView {
 		// Update the entry's property using fileManager
 		// For "Uncategorized", we'll set it to empty string or null
 		try {
-			const valueToSet = newColumnValue === UNCATEGORIZED_LABEL ? '' : newColumnValue;
-			
-			// Extract property name from property ID (e.g., "note.status" -> "status")
-			const parsedProperty = parsePropertyId(this.groupByPropertyId);
-			const propertyName = parsedProperty.name;
-			
+			const columnValueToSet = newColumnValue === UNCATEGORIZED_LABEL ? '' : newColumnValue;
+			const laneValueToSet = newLaneValue === UNCATEGORIZED_LABEL ? '' : newLaneValue;
+
 			await this.app.fileManager.processFrontMatter(entry.file, (frontmatter: Record<string, unknown>) => {
-				if (valueToSet === '') {
-					// Remove the property if setting to empty
-					delete frontmatter[propertyName];
-				} else {
-					frontmatter[propertyName] = valueToSet;
+				this.setFrontmatterProperty(frontmatter, this.groupByPropertyId as BasesPropertyId, columnValueToSet);
+				if (this.swimlanePropertyId && newLaneValue !== null) {
+					this.setFrontmatterProperty(frontmatter, this.swimlanePropertyId, laneValueToSet);
 				}
 			});
 			
@@ -434,22 +593,82 @@ export class KanbanView extends BasesView {
 		return [...savedOrder.filter(v => values.includes(v)), ...newValues];
 	}
 
-	private initializeColumnSortable(): void {
-		if (this.columnSortable) {
-			this.columnSortable.destroy();
+	private getOrderedLaneValues(values: string[], propertyId: BasesPropertyId): string[] {
+		const savedOrder = this.getLaneOrderFromStorage(propertyId);
+		if (!savedOrder) return values.sort();
+
+		const newValues = values.filter((value) => !savedOrder.includes(value));
+		return [...savedOrder.filter((value) => values.includes(value)), ...newValues];
+	}
+
+	private setFrontmatterProperty(
+		frontmatter: Record<string, unknown>,
+		propertyId: BasesPropertyId,
+		value: string
+	): void {
+		const parsedProperty = parsePropertyId(propertyId);
+		const propertyName = parsedProperty.name;
+
+		if (value === '') {
+			delete frontmatter[propertyName];
+			return;
 		}
-		
-		const boardEl = this.containerEl.querySelector(`.${CSS_CLASSES.BOARD}`);
-		if (!boardEl || !(boardEl instanceof HTMLElement)) return;
-		
-		this.columnSortable = new Sortable(boardEl, {
+
+		frontmatter[propertyName] = value;
+	}
+
+	private initializeColumnSortable(): void {
+		this.columnSortables.forEach((sortable) => sortable.destroy());
+		this.columnSortables = [];
+		this.columnSortable = null;
+
+		const boardEls = this.containerEl.querySelectorAll(`.${CSS_CLASSES.BOARD}`);
+		boardEls.forEach((boardEl) => {
+			if (!(boardEl instanceof HTMLElement)) {
+				return;
+			}
+
+			const sortable = new Sortable(boardEl, {
+				animation: SORTABLE_CONFIG.ANIMATION_DURATION,
+				handle: `.${CSS_CLASSES.COLUMN_DRAG_HANDLE}`,
+				draggable: `.${CSS_CLASSES.COLUMN}`,
+				ghostClass: CSS_CLASSES.COLUMN_GHOST,
+				dragClass: CSS_CLASSES.COLUMN_DRAGGING,
+				onEnd: (evt: Sortable.SortableEvent) => {
+					void this.handleColumnDrop(evt);
+				},
+			});
+
+			this.columnSortables.push(sortable);
+			if (!this.columnSortable) {
+				this.columnSortable = sortable;
+			}
+		});
+	}
+
+	private initializeLaneSortable(): void {
+		if (this.laneSortable) {
+			this.laneSortable.destroy();
+			this.laneSortable = null;
+		}
+
+		if (!this.swimlanePropertyId) {
+			return;
+		}
+
+		const swimlanesEl = this.containerEl.querySelector(`.${CSS_CLASSES.SWIMLANES}`);
+		if (!swimlanesEl || !(swimlanesEl instanceof HTMLElement)) {
+			return;
+		}
+
+		this.laneSortable = new Sortable(swimlanesEl, {
 			animation: SORTABLE_CONFIG.ANIMATION_DURATION,
-			handle: `.${CSS_CLASSES.COLUMN_DRAG_HANDLE}`,
-			draggable: `.${CSS_CLASSES.COLUMN}`,
-			ghostClass: CSS_CLASSES.COLUMN_GHOST,
-			dragClass: CSS_CLASSES.COLUMN_DRAGGING,
-			onEnd: (evt: Sortable.SortableEvent) => {
-				void this.handleColumnDrop(evt);
+			handle: `.${CSS_CLASSES.LANE_DRAG_HANDLE}`,
+			draggable: `.${CSS_CLASSES.LANE}`,
+			ghostClass: CSS_CLASSES.LANE_GHOST,
+			dragClass: CSS_CLASSES.LANE_DRAGGING,
+			onEnd: () => {
+				void this.handleLaneDrop();
 			},
 		});
 	}
@@ -457,32 +676,74 @@ export class KanbanView extends BasesView {
 	private async handleColumnDrop(evt: Sortable.SortableEvent): Promise<void> {
 		if (!this.groupByPropertyId) return;
 		
-		// Extract current column order from DOM
-		const columns = this.containerEl.querySelectorAll(`.${CSS_CLASSES.COLUMN}`);
+		const boardEl = evt.to instanceof HTMLElement
+			? evt.to
+			: this.containerEl.querySelector(`.${CSS_CLASSES.BOARD}`);
+		if (!boardEl) return;
+
+		// Extract current column order from the board row that was reordered
+		const columns = boardEl.querySelectorAll(`.${CSS_CLASSES.COLUMN}`);
 		const order = Array.from(columns).map(col => 
 			col.getAttribute(DATA_ATTRIBUTES.COLUMN_VALUE)
 		).filter((v): v is string => v !== null);
 		
 		await this.saveColumnOrderToStorage(this.groupByPropertyId, order);
+		if (this.swimlanePropertyId) {
+			this.render();
+		}
+	}
+
+	private async handleLaneDrop(): Promise<void> {
+		if (!this.swimlanePropertyId) {
+			return;
+		}
+
+		const lanes = this.containerEl.querySelectorAll(`.${CSS_CLASSES.LANE}`);
+		const order = Array.from(lanes)
+			.map((lane) => lane.getAttribute(DATA_ATTRIBUTES.LANE_VALUE))
+			.filter((value): value is string => value !== null);
+
+		await this.saveLaneOrderToStorage(this.swimlanePropertyId, order);
 	}
 
 	private getColumnOrderFromStorage(propertyId: BasesPropertyId): string[] | null {
-		// Access plugin data via this.app
-		if (!hasPluginRegistry(this.app)) {
-			return null;
-		}
-		const plugin = this.app.plugins?.plugins?.['kanban-bases-view'] as KanbanPlugin | undefined;
-		return plugin?.getColumnOrder?.(propertyId) || null;
+		return this.getStoredOrder('columnOrders', propertyId);
+	}
+
+	private getLaneOrderFromStorage(propertyId: BasesPropertyId): string[] | null {
+		return this.getStoredOrder('laneOrders', propertyId);
 	}
 
 	private async saveColumnOrderToStorage(propertyId: BasesPropertyId, order: string[]): Promise<void> {
-		if (!hasPluginRegistry(this.app)) {
-			return;
+		this.setStoredOrder('columnOrders', propertyId, order);
+	}
+
+	private async saveLaneOrderToStorage(propertyId: BasesPropertyId, order: string[]): Promise<void> {
+		this.setStoredOrder('laneOrders', propertyId, order);
+	}
+
+	private getStoredOrder(configKey: 'columnOrders' | 'laneOrders', propertyId: BasesPropertyId): string[] | null {
+		const configValue = this.config?.get?.(configKey);
+		if (!configValue || typeof configValue !== 'object') {
+			return null;
 		}
-		const plugin = this.app.plugins?.plugins?.['kanban-bases-view'] as KanbanPlugin | undefined;
-		if (plugin?.saveColumnOrder) {
-			await plugin.saveColumnOrder(propertyId, order);
+
+		const orders = configValue as Record<string, unknown>;
+		const order = orders[propertyId];
+		if (!Array.isArray(order)) {
+			return null;
 		}
+
+		return order.filter((value): value is string => typeof value === 'string');
+	}
+
+	private setStoredOrder(configKey: 'columnOrders' | 'laneOrders', propertyId: BasesPropertyId, order: string[]): void {
+		const configValue = this.config?.get?.(configKey);
+		const orders = configValue && typeof configValue === 'object'
+			? { ...(configValue as Record<string, unknown>) }
+			: {};
+		orders[propertyId] = order;
+		this.config?.set?.(configKey, orders);
 	}
 
 	onClose(): void {
@@ -493,9 +754,12 @@ export class KanbanView extends BasesView {
 		this.sortableInstances = [];
 		
 		// Clean up column Sortable instance
-		if (this.columnSortable) {
-			this.columnSortable.destroy();
-			this.columnSortable = null;
+		this.columnSortables.forEach((sortable) => sortable.destroy());
+		this.columnSortables = [];
+		this.columnSortable = null;
+		if (this.laneSortable) {
+			this.laneSortable.destroy();
+			this.laneSortable = null;
 		}
 		
 		// Note: DOM event listeners attached to elements within containerEl
@@ -511,6 +775,13 @@ export class KanbanView extends BasesView {
 				key: 'groupByProperty',
 				filter: (prop: string) => !prop.startsWith('file.'),
 				placeholder: 'Select property',
+			},
+			{
+				displayName: 'Swimlanes',
+				type: 'property',
+				key: 'swimlaneProperty',
+				filter: (prop: string) => !prop.startsWith('file.'),
+				placeholder: 'Optional property',
 			},
 		];
 	}

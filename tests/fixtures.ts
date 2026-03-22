@@ -4,6 +4,7 @@ import type { BasesEntry, BasesPropertyId } from 'obsidian';
 export const PROPERTY_STATUS = 'note.status' as BasesPropertyId;
 export const PROPERTY_PRIORITY = 'note.priority' as BasesPropertyId;
 export const PROPERTY_CATEGORY = 'note.category' as BasesPropertyId;
+export const PROPERTY_TAGS = 'note.tags' as BasesPropertyId;
 
 // Sample entries with status property
 export function createEntriesWithStatus(): BasesEntry[] {
@@ -22,6 +23,7 @@ export function createEntriesWithMixedProperties(): BasesEntry[] {
 		createMockBasesEntry(createMockTFile('Task A.md'), {
 			[PROPERTY_STATUS]: 'To Do',
 			[PROPERTY_PRIORITY]: 'High',
+			[PROPERTY_TAGS]: ['work', 'urgent'],
 		}),
 		createMockBasesEntry(createMockTFile('Task B.md'), {
 			[PROPERTY_STATUS]: 'Doing',
@@ -79,5 +81,5 @@ export const TEST_PROPERTIES: BasesPropertyId[] = [
 	PROPERTY_STATUS,
 	PROPERTY_PRIORITY,
 	PROPERTY_CATEGORY,
+	PROPERTY_TAGS,
 ];
-

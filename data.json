@@ -1,0 +1,17 @@
+{
+  "columnOrders": {
+    "note.status": [
+      "ready",
+      "active",
+      "in-progress",
+      "handed-off"
+    ]
+  },
+  "laneOrders": {
+    "note.type": [
+      "work",
+      "personal",
+      "side-project"
+    ]
+  }
+}

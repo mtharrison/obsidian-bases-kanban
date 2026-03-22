@@ -18,6 +18,7 @@ import {
 	createEntriesWithMixedProperties,
 	PROPERTY_STATUS,
 	PROPERTY_PRIORITY,
+	PROPERTY_TAGS,
 	TEST_PROPERTIES,
 } from './fixtures.ts';
 
@@ -57,6 +58,11 @@ describe('KanbanView Initialization', () => {
 			'groupByPropertyId should be null initially'
 		);
 		assert.strictEqual(
+			(view as any).swimlanePropertyId,
+			null,
+			'swimlanePropertyId should be null initially'
+		);
+		assert.strictEqual(
 			(view as any).sortableInstances.length,
 			0,
 			'sortableInstances array should be empty'
@@ -84,6 +90,11 @@ describe('KanbanView Initialization', () => {
 			testPropertyId,
 			'groupByPropertyId should be set from config'
 		);
+		assert.strictEqual(
+			(view as any).swimlanePropertyId,
+			null,
+			'swimlanePropertyId should remain null when not configured'
+		);
 	});
 
 	test('loadConfig handles null/undefined config values', () => {
@@ -100,6 +111,43 @@ describe('KanbanView Initialization', () => {
 			null,
 			'groupByPropertyId should remain null when config returns null'
 		);
+	});
+});
+
+describe('Data Rendering - Swimlanes', () => {
+	let scrollEl: HTMLElement;
+	let controller: any;
+	let app: any;
+
+	beforeEach(() => {
+		scrollEl = createDivWithMethods();
+		app = createMockApp();
+	});
+
+	test('render creates swimlanes when configured', () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const swimlanes = view.containerEl.querySelectorAll('.obk-lane');
+		assert.strictEqual(swimlanes.length, 3, 'Should render one swimlane per priority value');
+
+		const highLane = Array.from(swimlanes).find((lane) =>
+			lane.getAttribute('data-lane-value')?.includes('High')
+		);
+		assert.ok(highLane, 'High swimlane should exist');
+
+		const columns = highLane?.querySelectorAll('.obk-column');
+		assert.strictEqual(columns?.length, 3, 'Each swimlane should render all board columns');
 	});
 });
 
@@ -322,9 +370,32 @@ describe('Data Rendering - Card Rendering', () => {
 		const tasks = card?.querySelectorAll('.obk-task-item');
 		assert.strictEqual(tasks?.length, 2, 'Card should render tasks from note content');
 
-		const checkboxes = card?.querySelectorAll('.obk-task-checkbox') || [];
+		const checkboxes = card?.querySelectorAll('.obk-task-checkbox') ?? document.querySelectorAll('.obk-task-checkbox');
 		assert.strictEqual((checkboxes[0] as HTMLInputElement).checked, false, 'First task should be unchecked');
 		assert.strictEqual((checkboxes[1] as HTMLInputElement).checked, true, 'Second task should be checked');
+	});
+
+	test('Card preserves nested task indentation from the note', async () => {
+		const entries = createEntriesWithStatus();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		app.__setFileContent('Task 1.md', [
+			'- [ ] Parent task',
+			'  - [ ] Child task',
+			'    - [ ] Grandchild task',
+		].join('\n'));
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const tasks = view.containerEl.querySelectorAll('[data-entry-path="Task 1.md"] .obk-task-item');
+		assert.strictEqual(tasks.length, 3, 'All nested tasks should render');
+		assert.strictEqual((tasks[0] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '0', 'Top-level task should have depth 0');
+		assert.strictEqual((tasks[1] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '1', 'Nested task should have depth 1');
+		assert.strictEqual((tasks[2] as HTMLElement).style.getPropertyValue('--obk-task-depth'), '2', 'Deeper nested task should have depth 2');
 	});
 
 	test('Card click handler opens file in workspace', () => {
@@ -350,6 +421,90 @@ describe('Data Rendering - Card Rendering', () => {
 			entryPath,
 			'openLinkText should be called with entry path'
 		);
+	});
+
+	test('Card shows tags value in the top right when tags property exists', async () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task A.md"]');
+		assert.ok(card, 'Card should exist');
+
+		const tagPills = card?.querySelectorAll('.obk-card-tag-pill');
+		assert.ok(tagPills, 'Tag pills should exist');
+		assert.strictEqual(tagPills?.length, 2, 'Card should render one pill per tag');
+		assert.deepStrictEqual(
+			Array.from(tagPills ?? []).map((pill) => pill.textContent),
+			['work', 'urgent'],
+			'Tag pills should show normalized tag values'
+		);
+	});
+
+	test('Card falls back to getValue when getProperty is unavailable', async () => {
+		const entry = {
+			file: { path: 'Task Tags.md', basename: 'Task Tags' },
+			getValue: (propertyId: string) => {
+				if (propertyId === PROPERTY_STATUS) {
+					return { toString: () => 'To Do' };
+				}
+				if (propertyId === PROPERTY_TAGS) {
+					return { toString: () => 'alpha, beta' };
+				}
+				return null;
+			},
+		};
+
+		controller = createMockQueryController([entry as any], TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const tagPills = view.containerEl.querySelectorAll('.obk-card-tag-pill');
+		assert.strictEqual(tagPills.length, 2, 'Comma-delimited tag strings should split into pills');
+		assert.deepStrictEqual(
+			Array.from(tagPills).map((pill) => pill.textContent),
+			['alpha', 'beta'],
+			'Tag pills should use stringified value object contents'
+		);
+	});
+
+	test('Card does not render pills for null-like tag values', async () => {
+		const entry = {
+			file: { path: 'Task Null Tags.md', basename: 'Task Null Tags' },
+			getValue: (propertyId: string) => {
+				if (propertyId === PROPERTY_STATUS) {
+					return { toString: () => 'To Do' };
+				}
+				if (propertyId === PROPERTY_TAGS) {
+					return { toString: () => 'null, urgent, undefined' };
+				}
+				return null;
+			},
+		};
+
+		controller = createMockQueryController([entry as any], TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const tagPills = view.containerEl.querySelectorAll('.obk-card-tag-pill');
+		assert.strictEqual(tagPills.length, 1, 'Only real tag values should render as pills');
+		assert.strictEqual(tagPills[0]?.textContent, 'urgent', 'Null-like tag values should be ignored');
 	});
 
 	test('Task checkbox updates note content without opening the file', async () => {
@@ -392,6 +547,31 @@ describe('Data Rendering - Card Rendering', () => {
 			taskItem?.classList.contains('obk-task-item-completed'),
 			'Completed task should receive completed styling class'
 		);
+	});
+
+	test('Card renders properties selected in Bases property order', async () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
+		controller.config.getOrder = () => [PROPERTY_PRIORITY];
+		controller.config.getDisplayName = (propertyId: string) => {
+			if (propertyId === PROPERTY_PRIORITY) return 'Priority';
+			return propertyId;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+		await flushAsyncWork();
+
+		const card = view.containerEl.querySelector('[data-entry-path="Task A.md"]');
+		assert.ok(card, 'Card should exist');
+
+		const metaLabel = card?.querySelector('.obk-card-meta-label');
+		const metaValue = card?.querySelector('.obk-card-meta-value');
+		assert.strictEqual(metaLabel?.textContent, 'Priority:', 'Selected property label should render');
+		assert.strictEqual(metaValue?.textContent, 'High', 'Selected property value should render');
 	});
 });
 
@@ -663,6 +843,57 @@ describe('Drag and Drop - Card Drop Handling', () => {
 			1,
 			'processFrontMatter should be called'
 		);
+	});
+
+	test('handleCardDrop updates swimlane property when card moves across lanes', async () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const lanes = view.containerEl.querySelectorAll('.obk-lane');
+		const highLane = Array.from(lanes).find((lane) =>
+			lane.getAttribute('data-lane-value') === 'High'
+		) as HTMLElement;
+		const mediumLane = Array.from(lanes).find((lane) =>
+			lane.getAttribute('data-lane-value') === 'Medium'
+		) as HTMLElement;
+
+		assert.ok(highLane, 'High lane should exist');
+		assert.ok(mediumLane, 'Medium lane should exist');
+
+		const toDoColumn = highLane.querySelector('[data-column-value="To Do"]') as HTMLElement;
+		const doingColumn = mediumLane.querySelector('[data-column-value="Doing"]') as HTMLElement;
+		const card = toDoColumn.querySelector('.obk-card') as HTMLElement;
+		const fromBody = toDoColumn.querySelector('.obk-column-body') as HTMLElement;
+		const toBody = doingColumn.querySelector('.obk-column-body') as HTMLElement;
+
+		await (view as any).handleCardDrop({
+			item: card,
+			from: fromBody,
+			to: toBody,
+			oldIndex: 0,
+			newIndex: 0,
+		});
+
+		assert.strictEqual(app.fileManager.processFrontMatter.calls.length, 1, 'processFrontMatter should be called once');
+		const updateFn = app.fileManager.processFrontMatter.calls[0][1];
+		const frontmatter: Record<string, unknown> = {
+			status: 'To Do',
+			priority: 'High',
+		};
+		await updateFn(frontmatter);
+
+		assert.strictEqual(frontmatter.status, 'Doing', 'Column property should update');
+		assert.strictEqual(frontmatter.priority, 'Medium', 'Swimlane property should update');
 	});
 });
 
@@ -966,26 +1197,10 @@ describe('Column Reordering - Order Persistence', () => {
 	let scrollEl: HTMLElement;
 	let controller: any;
 	let app: any;
-	let mockPlugin: any;
 
 	beforeEach(() => {
 		scrollEl = createDivWithMethods();
 		app = createMockApp();
-		mockPlugin = {
-			columnOrders: {},
-			async saveColumnOrder(propertyId: string, order: string[]) {
-				this.columnOrders[propertyId] = order;
-			},
-			getColumnOrder(propertyId: string): string[] | null {
-				return this.columnOrders[propertyId] || null;
-			},
-		};
-		// Mock plugin access
-		(app as any).plugins = {
-			plugins: {
-				'kanban-bases-view': mockPlugin,
-			},
-		};
 	});
 
 	test('handleColumnDrop saves order to storage', async () => {
@@ -1016,7 +1231,8 @@ describe('Column Reordering - Order Persistence', () => {
 		await (view as any).handleColumnDrop(mockEvent);
 
 		// Verify order was saved
-		const savedOrder = mockPlugin.getColumnOrder(PROPERTY_STATUS);
+		const savedOrders = controller.config.get('columnOrders') as Record<string, string[]>;
+		const savedOrder = savedOrders?.[PROPERTY_STATUS];
 		assert.ok(savedOrder, 'Column order should be saved');
 		assert.ok(Array.isArray(savedOrder), 'Saved order should be an array');
 	});
@@ -1029,7 +1245,7 @@ describe('Column Reordering - Order Persistence', () => {
 
 		// Set saved order
 		const savedOrder = ['Done', 'Doing', 'To Do'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1059,7 +1275,7 @@ describe('Column Reordering - Order Persistence', () => {
 
 		// Set saved order with only some columns
 		const savedOrder = ['Done', 'Doing'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1087,7 +1303,7 @@ describe('Column Reordering - Order Persistence', () => {
 		// Set initial property and order
 		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
 		const savedOrder = ['Done', 'Doing', 'To Do'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1126,8 +1342,10 @@ describe('Column Reordering - Order Persistence', () => {
 		controller.app = app;
 
 		// Set different orders for different properties
-		mockPlugin.columnOrders[PROPERTY_STATUS] = ['Done', 'Doing', 'To Do'];
-		mockPlugin.columnOrders[PROPERTY_PRIORITY] = ['Low', 'Medium', 'High'];
+		controller.config.set('columnOrders', {
+			[PROPERTY_STATUS]: ['Done', 'Doing', 'To Do'],
+			[PROPERTY_PRIORITY]: ['Low', 'Medium', 'High'],
+		});
 
 		// Test status property
 		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
@@ -1162,7 +1380,7 @@ describe('Column Reordering - Order Persistence', () => {
 		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
 
 		// No saved order
-		mockPlugin.columnOrders = {};
+		controller.config.set('columnOrders', {});
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1182,14 +1400,61 @@ describe('Column Reordering - Order Persistence', () => {
 		);
 	});
 
+	test('handleLaneDrop saves swimlane order to storage', async () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const swimlanesEl = view.containerEl.querySelector('.obk-swimlanes') as HTMLElement;
+		const lanes = swimlanesEl.querySelectorAll('.obk-lane');
+		const lowLane = Array.from(lanes).find((lane) => lane.getAttribute('data-lane-value') === 'Low') as HTMLElement;
+		assert.ok(lowLane, 'Low lane should exist');
+
+		swimlanesEl.prepend(lowLane);
+		await (view as any).handleLaneDrop();
+
+		const savedOrders = controller.config.get('laneOrders') as Record<string, string[]>;
+		const savedOrder = savedOrders?.[PROPERTY_PRIORITY];
+		assert.deepStrictEqual(savedOrder, ['Low', 'High', 'Medium'], 'Lane order should be saved from DOM order');
+	});
+
+	test('Render respects saved swimlane order', () => {
+		const entries = createEntriesWithMixedProperties();
+		controller = createMockQueryController(entries, TEST_PROPERTIES);
+		controller.app = app;
+		controller.config.getAsPropertyId = (key: string) => {
+			if (key === 'groupByProperty') return PROPERTY_STATUS;
+			if (key === 'swimlaneProperty') return PROPERTY_PRIORITY;
+			return null;
+		};
+
+		controller.config.set('laneOrders', { [PROPERTY_PRIORITY]: ['Medium', 'Low', 'High'] });
+
+		const view = new KanbanView(controller, scrollEl);
+		setupKanbanViewWithApp(view, app);
+		view.onDataUpdated();
+
+		const lanes = view.containerEl.querySelectorAll('.obk-lane');
+		const renderedOrder = Array.from(lanes).map((lane) => lane.getAttribute('data-lane-value'));
+		assert.deepStrictEqual(renderedOrder, ['Medium', 'Low', 'High'], 'Saved swimlane order should be respected');
+	});
+
 	test('Handle null/undefined saved order gracefully', () => {
 		const entries = createEntriesWithStatus();
 		controller = createMockQueryController(entries, TEST_PROPERTIES);
 		controller.app = app;
 		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
 
-		// Mock getColumnOrder to return null
-		mockPlugin.getColumnOrder = (): string[] | null => null;
+		controller.config.set('columnOrders', null);
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1210,169 +1475,14 @@ describe('Column Reordering - Order Persistence', () => {
 	});
 });
 
-describe('Plugin Registry Type Guards', () => {
-	let scrollEl: HTMLElement;
-	let controller: any;
-	let app: any;
-
-	beforeEach(() => {
-		scrollEl = createDivWithMethods();
-		app = createMockApp();
-	});
-
-	test('getColumnOrderFromStorage returns null when app has no plugins property', () => {
-		const entries = createEntriesWithStatus();
-		controller = createMockQueryController(entries, TEST_PROPERTIES);
-		controller.app = app;
-		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
-
-		// Remove plugins property
-		delete (app as any).plugins;
-
-		const view = new KanbanView(controller, scrollEl);
-		setupKanbanViewWithApp(view, app);
-		view.onDataUpdated();
-
-		// Should not crash and should use alphabetical order
-		const columns = view.containerEl.querySelectorAll('.obk-column');
-		assert.ok(columns.length > 0, 'Columns should still be rendered');
-	});
-
-	test('getColumnOrderFromStorage returns null when plugins.plugins is undefined', () => {
-		const entries = createEntriesWithStatus();
-		controller = createMockQueryController(entries, TEST_PROPERTIES);
-		controller.app = app;
-		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
-
-		// Set plugins but not plugins.plugins
-		(app as any).plugins = {};
-
-		const view = new KanbanView(controller, scrollEl);
-		setupKanbanViewWithApp(view, app);
-		view.onDataUpdated();
-
-		// Should not crash
-		const columns = view.containerEl.querySelectorAll('.obk-column');
-		assert.ok(columns.length > 0, 'Columns should still be rendered');
-	});
-
-	test('getColumnOrderFromStorage returns null when plugin not found', () => {
-		const entries = createEntriesWithStatus();
-		controller = createMockQueryController(entries, TEST_PROPERTIES);
-		controller.app = app;
-		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
-
-		// Set plugins registry but without kanban-bases-view plugin
-		(app as any).plugins = {
-			plugins: {
-				'some-other-plugin': {},
-			},
-		};
-
-		const view = new KanbanView(controller, scrollEl);
-		setupKanbanViewWithApp(view, app);
-		view.onDataUpdated();
-
-		// Should fallback to alphabetical order
-		const columns = view.containerEl.querySelectorAll('.obk-column');
-		const renderedOrder = Array.from(columns).map((col) =>
-			col.getAttribute('data-column-value')
-		);
-		const expectedOrder = [...renderedOrder].sort();
-		assert.deepStrictEqual(
-			renderedOrder,
-			expectedOrder,
-			'Should fallback to alphabetical when plugin not found'
-		);
-	});
-
-	test('saveColumnOrderToStorage handles missing plugin registry gracefully', async () => {
-		const entries = createEntriesWithStatus();
-		controller = createMockQueryController(entries, TEST_PROPERTIES);
-		controller.app = app;
-		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
-
-		// Remove plugins property
-		delete (app as any).plugins;
-
-		const view = new KanbanView(controller, scrollEl);
-		setupKanbanViewWithApp(view, app);
-		view.onDataUpdated();
-
-		// Should not throw when trying to save
-		const columns = view.containerEl.querySelectorAll('.obk-column');
-		const boardEl = view.containerEl.querySelector('.obk-board') as HTMLElement;
-		
-		const mockEvent = {
-			item: columns[0] as HTMLElement,
-			from: boardEl,
-			to: boardEl,
-			oldIndex: 0,
-			newIndex: 1,
-		};
-
-		// Should not throw
-		await assert.doesNotReject(
-			async () => await (view as any).handleColumnDrop(mockEvent),
-			'Should handle missing plugin registry gracefully'
-		);
-	});
-
-	test('Plugin access works correctly when registry exists', () => {
-		const entries = createEntriesWithStatus();
-		controller = createMockQueryController(entries, TEST_PROPERTIES);
-		controller.app = app;
-		controller.config.getAsPropertyId = () => PROPERTY_STATUS;
-
-		const mockPlugin = {
-			columnOrders: {},
-			async saveColumnOrder(propertyId: string, order: string[]) {
-				this.columnOrders[propertyId] = order;
-			},
-			getColumnOrder(propertyId: string): string[] | null {
-				return this.columnOrders[propertyId] || null;
-			},
-		};
-
-		(app as any).plugins = {
-			plugins: {
-				'kanban-bases-view': mockPlugin,
-			},
-		};
-
-		const view = new KanbanView(controller, scrollEl);
-		setupKanbanViewWithApp(view, app);
-		view.onDataUpdated();
-
-		// Should work normally
-		const columns = view.containerEl.querySelectorAll('.obk-column');
-		assert.ok(columns.length > 0, 'Columns should be rendered');
-	});
-});
-
 describe('Column Order Normalization', () => {
 	let scrollEl: HTMLElement;
 	let controller: any;
 	let app: any;
-	let mockPlugin: any;
 
 	beforeEach(() => {
 		scrollEl = createDivWithMethods();
 		app = createMockApp();
-		mockPlugin = {
-			columnOrders: {},
-			async saveColumnOrder(propertyId: string, order: string[]) {
-				this.columnOrders[propertyId] = order;
-			},
-			getColumnOrder(propertyId: string): string[] | null {
-				return this.columnOrders[propertyId] || null;
-			},
-		};
-		(app as any).plugins = {
-			plugins: {
-				'kanban-bases-view': mockPlugin,
-			},
-		};
 	});
 
 	test('Normalizes old JSON strings in saved order', () => {
@@ -1383,7 +1493,7 @@ describe('Column Order Normalization', () => {
 
 		// Saved order should be normalized strings (as they are when saved from column values)
 		const savedOrder = ['Done', 'Doing', 'To Do'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1412,7 +1522,7 @@ describe('Column Order Normalization', () => {
 
 		// Saved order should be normalized strings
 		const savedOrder = ['Done', 'To Do', 'Doing'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1437,7 +1547,7 @@ describe('Column Order Normalization', () => {
 
 		// Saved order with only some columns (normalized strings)
 		const savedOrder = ['Done'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1472,7 +1582,7 @@ describe('Column Order Normalization', () => {
 			'{"Data": "Done"}', // JSON string won't match normalized column value
 			'InvalidValue', // Invalid value that doesn't exist
 		];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);
@@ -1503,7 +1613,7 @@ describe('Column Order Normalization', () => {
 
 		// Saved order with invalid JSON (should fall back to string value)
 		const savedOrder = ['{invalid json}', 'To Do'];
-		mockPlugin.columnOrders[PROPERTY_STATUS] = savedOrder;
+		controller.config.set('columnOrders', { [PROPERTY_STATUS]: savedOrder });
 
 		const view = new KanbanView(controller, scrollEl);
 		setupKanbanViewWithApp(view, app);

@@ -119,14 +119,31 @@ export function createMockQueryController(
 	entries: BasesEntry[] = [],
 	properties: BasesPropertyId[] = []
 ): QueryController {
+	const configStore: Record<string, unknown> = {};
 	const controller = {
 		data: {
 			data: entries,
 		},
 		allProperties: properties,
 		config: {
+			get: (key: string): unknown => {
+				return configStore[key];
+			},
 			getAsPropertyId: (key: string): BasesPropertyId | null => {
 				return null;
+			},
+			getOrder: (): BasesPropertyId[] => {
+				return [];
+			},
+			getDisplayName: (propertyId: BasesPropertyId): string => {
+				return String(propertyId).replace(/^[^.]+\./, '');
+			},
+			set: (key: string, value: any | null): void => {
+				if (value === null) {
+					delete configStore[key];
+					return;
+				}
+				configStore[key] = value;
 			},
 		},
 	} as unknown as QueryController;
@@ -309,4 +326,3 @@ export function createKanbanViewWithApp(
 	setupKanbanViewWithApp(view, app);
 	return view;
 }
-
