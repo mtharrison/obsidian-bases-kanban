@@ -96,7 +96,7 @@ describe('Plugin Registration', () => {
 
 describe('View Options', () => {
 	test('getViewOptions returns correct structure', () => {
-		const options = KanbanView.getViewOptions();
+		const options = KanbanView.getViewOptions({ get: (): null => null } as any);
 		const groupOption = options[0] as { displayName: string; type: string; key: string; placeholder: string };
 		const swimlaneOption = options[1] as { displayName: string; key: string };
 		const milestonesOption = options[2] as { displayName: string; type: string; key: string; placeholder: string };
@@ -124,7 +124,7 @@ describe('View Options', () => {
 	});
 
 	test('Property filter excludes file.* properties', () => {
-		const options = KanbanView.getViewOptions();
+		const options = KanbanView.getViewOptions({ get: (): null => null } as any);
 		const option = options[0] as { filter?: (prop: string) => boolean };
 		const filter = option.filter;
 		

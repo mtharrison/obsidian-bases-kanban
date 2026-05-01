@@ -1,5 +1,5 @@
 import { BasesView, parsePropertyId } from 'obsidian';
-import type { QueryController, BasesEntry, BasesPropertyId, ViewOption, App } from 'obsidian';
+import type { QueryController, BasesEntry, BasesPropertyId, BasesAllOptions, BasesViewConfig, App } from 'obsidian';
 import Sortable from 'sortablejs';
 import {
 	UNCATEGORIZED_LABEL,
@@ -1349,27 +1349,27 @@ export class KanbanView extends BasesView {
 		// No manual cleanup needed for listeners on child elements.
 	}
 
-	static getViewOptions(this: void): ViewOption[] {
+	static getViewOptions(this: void, config: BasesViewConfig): BasesAllOptions[] {
 		return [
 			{
 				displayName: 'Group by',
 				type: 'property',
 				key: 'groupByProperty',
-				filter: (prop: string) => !prop.startsWith('file.'),
+				filter: (prop: BasesPropertyId) => !prop.startsWith('file.'),
 				placeholder: 'Select property',
 			},
 			{
 				displayName: 'Swimlanes',
 				type: 'property',
 				key: 'swimlaneProperty',
-				filter: (prop: string) => !prop.startsWith('file.'),
+				filter: (prop: BasesPropertyId) => !prop.startsWith('file.'),
 				placeholder: 'Optional property',
 			},
 			{
 				displayName: 'Milestones',
 				type: 'property',
 				key: 'milestoneProperty',
-				filter: (prop: string) => !prop.startsWith('file.'),
+				filter: (prop: BasesPropertyId) => !prop.startsWith('file.'),
 				placeholder: 'Optional list property',
 			},
 			{
@@ -1377,7 +1377,7 @@ export class KanbanView extends BasesView {
 				type: 'toggle',
 				key: 'showSwimlanes',
 				default: true,
-				shouldHide: (config) => !config.get('swimlaneProperty'),
+				shouldHide: () => !config.get('swimlaneProperty'),
 			},
 			{
 				displayName: 'Column colors',

@@ -3,6 +3,8 @@
 
 export type BasesPropertyId = string;
 export type ViewOption = any;
+export type BasesAllOptions = any;
+export type BasesViewConfig = any;
 
 export interface TFile {
 	path: string;

@@ -1,6 +1,6 @@
 {
   "name": "@mtharrison/kanban-base-advanced",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A kanban view for Obsidian Bases with swimlanes, milestone cards, task rollups, and custom column colors",
   "main": "main.js",
   "imports": {
@@ -43,7 +43,7 @@
     "eslint": "^9.0.0",
     "eslint-plugin-obsidianmd": "^0.1.8",
     "jsdom": "^24.0.0",
-    "obsidian": "^1.5.8",
+    "obsidian": "^1.12.3",
     "tslib": "2.6.2",
     "tsx": "^4.20.6",
     "typescript": "5.3.3"
