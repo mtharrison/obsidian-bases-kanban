@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   test:
@@ -90,14 +90,14 @@ jobs:
         with:
           name: plugin-artifacts
           path: |
-            dist/main.js
-            dist/manifest.json
-            dist/styles.css
+            main.js
+            manifest.json
+            styles.css
           retention-days: 1
 
   release:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -112,15 +112,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: plugin-artifacts
-          path: dist
-      
+
       - name: Resolve release version
         id: version
         run: |
-          MANIFEST_VERSION=$(node -p "require('./dist/manifest.json').version")
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
           echo "Manifest version: $MANIFEST_VERSION"
           echo "version=$MANIFEST_VERSION" >> $GITHUB_OUTPUT
-      
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -128,8 +127,8 @@ jobs:
           name: Release ${{ steps.version.outputs.version }}
           generate_release_notes: true
           files: |
-            dist/main.js
-            dist/manifest.json
-            dist/styles.css
+            main.js
+            manifest.json
+            styles.css
           draft: false
           prerelease: false
