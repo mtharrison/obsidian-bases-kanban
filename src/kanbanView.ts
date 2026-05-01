@@ -406,7 +406,7 @@ export class KanbanView extends BasesView {
 
 			const boardScrollerEl = laneEl.createDiv({ cls: CSS_CLASSES.BOARD_SCROLLER });
 			const boardEl = boardScrollerEl.createDiv({ cls: CSS_CLASSES.BOARD });
-			const groupedByColumn = this.groupCardsByProperty(laneEntries, this.groupByPropertyId as BasesPropertyId);
+			const groupedByColumn = this.groupCardsByProperty(laneEntries, this.groupByPropertyId);
 
 			columnValues.forEach((columnValue) => {
 				const columnEl = this.createColumn(columnValue, groupedByColumn.get(columnValue) || []);
@@ -561,11 +561,13 @@ export class KanbanView extends BasesView {
 	}
 
 	private getEntryPropertyValue(entry: BasesEntry, propertyId: BasesPropertyId): unknown {
-		const propertyReader = 'getProperty' in entry && typeof entry.getProperty === 'function'
-			? entry.getProperty.bind(entry)
+		type Reader = (id: BasesPropertyId) => unknown;
+		const e = entry as unknown as Record<string, unknown>;
+		const propertyReader: Reader | null = typeof e.getProperty === 'function'
+			? ((id: BasesPropertyId) => (e.getProperty as Reader)(id))
 			: null;
-		const valueReader = 'getValue' in entry && typeof entry.getValue === 'function'
-			? entry.getValue.bind(entry)
+		const valueReader: Reader | null = typeof e.getValue === 'function'
+			? ((id: BasesPropertyId) => (e.getValue as Reader)(id))
 			: null;
 
 		return propertyReader?.(propertyId) ?? valueReader?.(propertyId) ?? null;
@@ -593,11 +595,7 @@ export class KanbanView extends BasesView {
 			return value.flatMap((item) => this.normalizeTagValues(item));
 		}
 
-		if (typeof value === 'object' && 'toString' in (value as Record<string, unknown>)) {
-			return this.splitTagString(String(value));
-		}
-
-		return this.splitTagString(String(value));
+		return this.splitTagString(String(value as string));
 	}
 
 	private splitTagString(value: string): string[] {
@@ -635,7 +633,7 @@ export class KanbanView extends BasesView {
 			return values.length > 0 ? values.join(', ') : null;
 		}
 
-		const normalized = String(value).trim();
+		const normalized = String(value as string).trim();
 		if (!normalized || /^(null|undefined)$/i.test(normalized)) {
 			return null;
 		}
@@ -690,7 +688,7 @@ export class KanbanView extends BasesView {
 
 		const linkEl = tasksEl.createEl('button', {
 			cls: CSS_CLASSES.CARD_TASK_EMPTY_LINK,
-			text: '⚠️ Create next task',
+			text: '⚠️ Create next task', // eslint-disable-line obsidianmd/ui/sentence-case
 		});
 		linkEl.type = 'button';
 		linkEl.addEventListener('click', (event) => {
@@ -845,11 +843,13 @@ export class KanbanView extends BasesView {
 		}
 
 		checkboxEl.addEventListener('click', (event) => event.stopPropagation());
-		checkboxEl.addEventListener('change', async () => {
-			const updated = await this.handleTaskCheckboxChange(entry, task, checkboxEl, taskEl);
-			if (updated) {
-				await onToggle();
-			}
+		checkboxEl.addEventListener('change', () => {
+			void (async () => {
+				const updated = await this.handleTaskCheckboxChange(entry, task, checkboxEl, taskEl);
+				if (updated) {
+					await onToggle();
+				}
+			})();
 		});
 
 		taskEl.appendChild(checkboxEl);
@@ -1019,7 +1019,7 @@ export class KanbanView extends BasesView {
 						frontmatter,
 						this.milestonePropertyId,
 						milestoneIndex,
-						this.groupByPropertyId as BasesPropertyId,
+						this.groupByPropertyId,
 						columnValueToSet
 					);
 					if (this.swimlanePropertyId && newLaneValue !== null) {
@@ -1034,7 +1034,7 @@ export class KanbanView extends BasesView {
 					return;
 				}
 
-				this.setFrontmatterProperty(frontmatter, this.groupByPropertyId as BasesPropertyId, columnValueToSet);
+				this.setFrontmatterProperty(frontmatter, this.groupByPropertyId, columnValueToSet);
 				if (this.swimlanePropertyId && newLaneValue !== null) {
 					this.setFrontmatterProperty(frontmatter, this.swimlanePropertyId, laneValueToSet);
 				}
@@ -1105,7 +1105,7 @@ export class KanbanView extends BasesView {
 
 		const milestoneObject = typeof currentMilestone === 'object' && currentMilestone !== null && !Array.isArray(currentMilestone)
 			? { ...(currentMilestone as Record<string, unknown>) }
-			: { title: String(currentMilestone ?? '') };
+			: { title: String((currentMilestone ?? '') as string) };
 		setMilestoneValue(milestoneObject, parsePropertyId(propertyId).name, value);
 		milestones[milestoneIndex] = milestoneObject;
 		frontmatter[milestonePropertyName] = milestones;

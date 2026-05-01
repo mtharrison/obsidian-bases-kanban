@@ -1,7 +1,7 @@
 {
 	"id": "kanban-bases-view",
 	"name": "Kanban Bases View",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"minAppVersion": "1.0.0",
 	"description": "A kanban view for Bases with swimlanes, milestone cards, task rollups, and custom column colors.",
 	"author": "Matt Harrison",

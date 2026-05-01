@@ -15,6 +15,7 @@ export default defineConfig([
 			globals: {
 				console: "readonly",
 				document: "readonly",
+				window: "readonly",
 			},
 		}
 	},
@@ -24,6 +25,8 @@ export default defineConfig([
 			"dist/**",
 			"node_modules/**",
 			"tests/**",
+			"main.js",
+			"app.js",
 		],
 	},
 ]);
